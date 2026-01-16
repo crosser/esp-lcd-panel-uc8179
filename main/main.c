@@ -10,9 +10,17 @@
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_uc8179.h>
 
-#define TAG "BLINK"
-#define REFRESH_TIME (2 * 1000000)
-#define SEND_BUF_SIZE 4092
+#define TAG "panel_uc8179"
+
+#if defined(CONFIG_HWE_DISPLAY_SPI1_HOST)
+# define SPIx_HOST SPI1_HOST
+#elif defined(CONFIG_HWE_DISPLAY_SPI2_HOST)
+# define SPIx_HOST SPI2_HOST
+#else
+# error "SPI host 1 or 2 must be selected"
+#endif
+
+#define BLINK_TIME (2 * 1000000)
 
 static bool led_on = false;
 
@@ -33,17 +41,16 @@ void app_main(void)
 			.name = "blink timer",
 		},
 		&blink_timer));
-	ESP_ERROR_CHECK(esp_timer_start_periodic(blink_timer, REFRESH_TIME));
+	ESP_ERROR_CHECK(esp_timer_start_periodic(blink_timer, BLINK_TIME));
 	ESP_LOGI(TAG, "Blinker set up.");
 
 	ESP_LOGI(TAG, "Initializing SPI bus");
-	ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST,
+	ESP_ERROR_CHECK(spi_bus_initialize(SPIx_HOST,
 		&(spi_bus_config_t) {
-			.mosi_io_num = GPIO_NUM_14,
+			.mosi_io_num = CONFIG_HWE_DISPLAY_SPI_MOSI,
 			.miso_io_num = -1,
-			.sclk_io_num = GPIO_NUM_13,
-			.max_transfer_sz = SEND_BUF_SIZE + 8,
-			// SOC_SPI_MAXIMUM_BUFFER_SIZE
+			.sclk_io_num = CONFIG_HWE_DISPLAY_SPI_SCK,
+			.max_transfer_sz = SOC_SPI_MAXIMUM_BUFFER_SIZE,
 			.flags = SPICOMMON_BUSFLAG_MASTER
 				| SPICOMMON_BUSFLAG_GPIO_PINS,
 		},
@@ -52,12 +59,12 @@ void app_main(void)
 	ESP_LOGI(TAG, "Attach panel IO handle to SPI");
 	esp_lcd_panel_io_handle_t io_handle = NULL;
 	ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(
-		(esp_lcd_spi_bus_handle_t)SPI2_HOST,
+		(esp_lcd_spi_bus_handle_t)SPIx_HOST,
 		&(esp_lcd_panel_io_spi_config_t) {
-			.cs_gpio_num = GPIO_NUM_15,
-			.dc_gpio_num = GPIO_NUM_27,
+			.cs_gpio_num = CONFIG_HWE_DISPLAY_SPI_CS,
+			.dc_gpio_num = CONFIG_HWE_DISPLAY_SPI_DC,
 			.spi_mode = 0,
-			.pclk_hz = 2000000,
+			.pclk_hz = CONFIG_HWE_DISPLAY_SPI_FREQUENCY,
 			.lcd_cmd_bits = 0,
 			.lcd_param_bits = 0,
 			.trans_queue_depth = 17,
@@ -72,10 +79,12 @@ void app_main(void)
 	ESP_ERROR_CHECK(esp_lcd_new_panel_uc8179(io_handle,
 		&(esp_lcd_panel_dev_config_t) {
 			.reset_gpio_num = GPIO_NUM_26,
-			.flags.reset_active_high = false,
+			.flags.reset_active_high =
+				CONFIG_HWE_DISPLAY_RST_ACTIVE_LEVEL,
 			.vendor_config =
 				&(esp_lcd_uc8179_config_t) {
-					.busy_gpio_num = GPIO_NUM_25,
+					.busy_gpio_num =
+						CONFIG_HWE_DISPLAY_BUSY,
 					.non_copy_mode = true,
 				},
 		},
