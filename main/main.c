@@ -1,4 +1,6 @@
+#include <stdint.h>
 #include <stdio.h>
+#include <freertos/FreeRTOS.h>
 #include <esp_err.h>
 #include <esp_log.h>
 #include <esp_timer.h>
@@ -10,6 +12,9 @@
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_uc8179.h>
 
+#include "sdkconfig.h"
+#include "img_bitmap.h"
+
 #define TAG "panel_uc8179"
 
 #if defined(CONFIG_HWE_DISPLAY_SPI1_HOST)
@@ -20,6 +25,8 @@
 # error "SPI host 1 or 2 must be selected"
 #endif
 
+#define BITMAP_SIZE (CONFIG_HWE_DISPLAY_WIDTH * CONFIG_HWE_DISPLAY_HEIGHT / 8)
+
 #define BLINK_TIME (2 * 1000000)
 
 static bool led_on = false;
@@ -28,6 +35,20 @@ static void blink_task(void *arg)
 {
 	led_on = !led_on;
 	ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_2, led_on));
+}
+
+static bool give_semaphore_in_isr(const esp_lcd_panel_handle_t handle,
+		const void *edata, void *user_data)
+{
+	SemaphoreHandle_t *epaper_panel_semaphore_ptr = user_data;
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	xSemaphoreGiveFromISR(*epaper_panel_semaphore_ptr,
+			&xHigherPriorityTaskWoken);
+	if (xHigherPriorityTaskWoken == pdTRUE) {
+		portYIELD_FROM_ISR();
+		return true;
+	}
+	return false;
 }
 
 void app_main(void)
@@ -89,4 +110,41 @@ void app_main(void)
 				},
 		},
 		&panel_handle));
+	ESP_LOGI(TAG, "Resetting e-Paper display...");
+	ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
+	vTaskDelay(100 / portTICK_PERIOD_MS);
+	ESP_LOGI(TAG, "Initializing e-Paper display...");
+	ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
+	vTaskDelay(100 / portTICK_PERIOD_MS);
+	ESP_LOGI(TAG, "Turning e-Paper display on...");
+	ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
+	// ESP_ERROR_CHECK(epaper_panel_set_custom_lut(panel_handle, ...);
+	vTaskDelay(100 / portTICK_PERIOD_MS);
+
+	static SemaphoreHandle_t epaper_panel_semaphore;
+	epaper_panel_semaphore = xSemaphoreCreateBinary();
+	xSemaphoreGive(epaper_panel_semaphore);
+
+	uint8_t *empty_bitmap = heap_caps_malloc(BITMAP_SIZE, MALLOC_CAP_DMA);
+	memset(empty_bitmap, 0, BITMAP_SIZE);
+	esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, CONFIG_HWE_DISPLAY_WIDTH,
+			CONFIG_HWE_DISPLAY_HEIGHT, empty_bitmap);
+
+	epaper_panel_register_event_callbacks(panel_handle,
+		&(epaper_panel_callbacks_t) {
+			.on_epaper_refresh_done = give_semaphore_in_isr,
+		}, &epaper_panel_semaphore);
+
+	ESP_LOGI(TAG, "Drawing bitmap...");
+	xSemaphoreTake(epaper_panel_semaphore, portMAX_DELAY);
+	ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, false, false));
+	ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, false));
+	ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_handle, false));
+	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0,
+			CONFIG_HWE_DISPLAY_WIDTH, CONFIG_HWE_DISPLAY_HEIGHT,
+			BITMAP));
+	ESP_ERROR_CHECK(epaper_panel_refresh_screen(panel_handle));
+	vTaskDelay(pdMS_TO_TICKS(5000));
+	ESP_LOGI(TAG, "Go to sleep mode...");
+	esp_lcd_panel_disp_on_off(panel_handle, false);
 }
