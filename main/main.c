@@ -8,7 +8,7 @@
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_vendor.h>
 #include <esp_lcd_panel_ops.h>
-#include <esp_lcd_panel_epd5in83v2.h>
+#include <esp_lcd_panel_uc8179.h>
 
 #define TAG "BLINK"
 #define REFRESH_TIME (2 * 1000000)
@@ -65,16 +65,16 @@ void app_main(void)
 		&io_handle
 	));
 	// NOTE: Please call gpio_install_isr_service() manually
-	// before esp_lcd_new_panel_epd5in83v2() because gpio_isr_handler_add()
-	// is called in esp_lcd_new_panel_epd5in83v2()
+	// before esp_lcd_new_panel_uc8179() because gpio_isr_handler_add()
+	// is called in esp_lcd_new_panel_uc8179()
 	gpio_install_isr_service(0);
 	esp_lcd_panel_handle_t panel_handle = NULL;
-	ESP_ERROR_CHECK(esp_lcd_new_panel_epd5in83v2(io_handle,
+	ESP_ERROR_CHECK(esp_lcd_new_panel_uc8179(io_handle,
 		&(esp_lcd_panel_dev_config_t) {
 			.reset_gpio_num = GPIO_NUM_26,
 			.flags.reset_active_high = false,
 			.vendor_config =
-				&(esp_lcd_epd5in83v2_config_t) {
+				&(esp_lcd_uc8179_config_t) {
 					.busy_gpio_num = GPIO_NUM_25,
 					.non_copy_mode = true,
 				},
