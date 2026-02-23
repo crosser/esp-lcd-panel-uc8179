@@ -9,6 +9,8 @@
 #include <sys/cdefs.h>
 #include "sdkconfig.h"
 
+#define CONFIG_LCD_ENABLE_DEBUG_LOG 1  /* this should be in the Kconfig */
+
 #if CONFIG_LCD_ENABLE_DEBUG_LOG
 // The local log level must be defined before including esp_log.h
 // Set the maximum log level for this source file
@@ -29,25 +31,191 @@
 
 static const char *TAG = "lcd_panel_uc8179";
 
+/* UC8179 SPI command codes */
+#define CMD_PSR  0x00
+#define CMD_PWR  0x01
+#define CMD_POF  0x02
+#define CMD_PON  0x04
+#define CMD_DSLP 0x07
+#define CMD_DTM1 0x10
+#define CMD_DRF  0x12
+#define CMD_DTM2 0x13
+#define CMD_DSPI 0x15
+#define CMD_CDI  0x50
+#define CMD_TCON 0x60
+#define CMD_TRES 0x61
+#define CMD_FLG  0x71
+
+typedef struct {
+	esp_lcd_epaper_panel_cb_t callback_ptr;
+	void *args;
+} uc8179_panel_callback_t;
+
 typedef struct {
 	esp_lcd_panel_t base;
 	esp_lcd_panel_io_handle_t io;
 	int reset_gpio_num;
-	bool reset_level;
+	bool reset_active_level;
+	int busy_gpio_num;
+	uc8179_panel_callback_t refresh_done_isr_callback;
+	bool _non_copy_mode;
+	int _width;
+	int _height;
+	uint8_t *_framebuffer;
+	uint8_t *_zeroes;
+	int x_gap;
+	int y_gap;
+	bool swap_axes;
 } uc8179_panel_t;
+
+static esp_err_t uc8179_wait_busy(esp_lcd_panel_t *panel)
+{
+	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t, base);
+#if 0
+	esp_lcd_panel_io_handle_t io = uc8179->io;
+	uint8_t flg;
+#endif
+	TickType_t start, end;
+
+	start = xTaskGetTickCount();
+	while (!gpio_get_level(uc8179->busy_gpio_num)) {
+#if 0
+		ESP_LOGD(TAG, "About to sent CMD_FLG");
+		ESP_RETURN_ON_ERROR(esp_lcd_panel_io_rx_param(io, CMD_FLG,
+				&flg, 1),
+		TAG, "CMD_PSR err");
+		ESP_LOGD(TAG, "FLG %02x", flg);
+#endif
+		vTaskDelay(pdMS_TO_TICKS(15));
+	}
+	end = xTaskGetTickCount();
+	ESP_LOGD(TAG, "was busy %d ticks", (int)(end - start));
+	return ESP_OK;
+}
+
+
+static void uc8179_gpio_isr_handler(void *arg)
+{
+	uc8179_panel_t *uc8179 = arg;
+	gpio_intr_disable(uc8179->busy_gpio_num);
+	if (uc8179->refresh_done_isr_callback.callback_ptr) {
+		(uc8179->refresh_done_isr_callback.callback_ptr)(
+			&(uc8179->base), NULL,
+			uc8179->refresh_done_isr_callback.args);
+	}
+}
+
+esp_err_t uc8179_panel_refresh_screen(esp_lcd_panel_t *panel)
+{
+	ESP_RETURN_ON_FALSE(panel, ESP_ERR_INVALID_ARG, TAG,
+			"panel handler is NULL");
+	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t, base);
+	esp_lcd_panel_io_handle_t io = uc8179->io;
+	ESP_LOGD(TAG, "About to sent CMD_DRF");
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_DRF, NULL, 0),
+		TAG, "CMD_DRF err");
+	vTaskDelay(pdMS_TO_TICKS(100));
+	uc8179_wait_busy(panel);
+	return ESP_OK;
+}
+
+esp_err_t uc8179_register_event_callbacks(esp_lcd_panel_t *panel,
+			epaper_panel_callbacks_t *cbs, void *user_ctx)
+{
+	ESP_RETURN_ON_FALSE(panel, ESP_ERR_INVALID_ARG, TAG,
+			"panel handler is NULL");
+	ESP_RETURN_ON_FALSE(cbs, ESP_ERR_INVALID_ARG, TAG, "cbs is NULL");
+	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t, base);
+	(uc8179->refresh_done_isr_callback).callback_ptr =
+		cbs->on_epaper_refresh_done;
+	(uc8179->refresh_done_isr_callback).args = user_ctx;
+	return ESP_OK;
+}
 
 static esp_err_t panel_uc8179_del(esp_lcd_panel_t * panel)
 {
+	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
+	if ((uc8179->reset_gpio_num) >= 0) {
+		gpio_reset_pin(uc8179->reset_gpio_num);
+	}
+	gpio_reset_pin(uc8179->busy_gpio_num);
+	if ((uc8179->_framebuffer) && (!(uc8179->_non_copy_mode))) {
+		free(uc8179->_framebuffer);
+	}
+	if (uc8179->_zeroes) {
+		free(uc8179->_zeroes);
+	}
+	ESP_LOGD(TAG, "del uc8179 panel @%p", uc8179);
+	free(uc8179);
 	return ESP_OK;
 }
 
 static esp_err_t panel_uc8179_reset(esp_lcd_panel_t * panel)
 {
+	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
+
+	if (uc8179->reset_gpio_num >= 0) {
+		ESP_RETURN_ON_ERROR(gpio_set_level(
+				uc8179->reset_gpio_num,
+				uc8179->reset_active_level),
+			TAG, "gpio_set_level active error");
+		vTaskDelay(pdMS_TO_TICKS(200));
+	}
+	if (uc8179->reset_gpio_num >= 0) {
+		ESP_RETURN_ON_ERROR(gpio_set_level(
+				uc8179->reset_gpio_num,
+				!uc8179->reset_active_level),
+			TAG, "gpio_set_level inactive error");
+		vTaskDelay(pdMS_TO_TICKS(5));
+	}
+	if (uc8179->reset_gpio_num >= 0) {
+		ESP_RETURN_ON_ERROR(gpio_set_level(
+				uc8179->reset_gpio_num,
+				uc8179->reset_active_level),
+			TAG, "gpio_set_level active1 again error");
+		vTaskDelay(pdMS_TO_TICKS(200));
+	}
 	return ESP_OK;
 }
 
 static esp_err_t panel_uc8179_init(esp_lcd_panel_t * panel)
 {
+	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
+	esp_lcd_panel_io_handle_t io = uc8179->io;
+
+	ESP_LOGD(TAG, "About to sent CMD_PWR");
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_PWR,
+			(uint8_t[]) { 0x07, 0x07, 0x3f, 0x3f }, 4),
+		TAG, "CMD_PWR err");
+	ESP_LOGD(TAG, "About to sent CMD_PON");
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_PON, NULL, 0),
+		TAG, "CMD_PON err");
+	vTaskDelay(pdMS_TO_TICKS(100));
+	uc8179_wait_busy(panel);
+	ESP_LOGD(TAG, "About to sent CMD_PSR");
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_PSR,
+			(uint8_t[]) { 0x1f }, 1),
+		TAG, "CMD_PSR err");
+	ESP_LOGD(TAG, "About to sent CMD_TRES");
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_TRES,
+			(uint8_t[]) {
+				uc8179->_width >> 8,
+				uc8179->_width & 0xff,
+				uc8179->_height >> 8,
+			       	uc8179->_height & 0xff }, 4),
+		TAG, "CMD_TRES err");
+	ESP_LOGD(TAG, "About to sent CMD_DSPI");
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_DSPI,
+			(uint8_t[]) { 0 }, 1),
+		TAG, "CMD_DSPI err");
+	ESP_LOGD(TAG, "About to sent CMD_CDI");
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_CDI,
+			(uint8_t[]) { 0x10, 0x07 }, 2),
+		TAG, "CMD_CDI err");
+	ESP_LOGD(TAG, "About to sent CMD_TCON");
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_TCON,
+			(uint8_t[]) { 0x22 }, 1),
+		TAG, "CMD_TCON err");
 	return ESP_OK;
 }
 
@@ -56,52 +224,126 @@ static esp_err_t panel_uc8179_draw_bitmap(esp_lcd_panel_t * panel,
 						int x_end, int y_end,
 						const void *color_data)
 {
+	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
+	esp_lcd_panel_io_handle_t io = uc8179->io;
+	const uint8_t *videomem;
+
+	if (uc8179->_non_copy_mode) {
+		ESP_RETURN_ON_FALSE(x_start == 0 && y_start == 0
+				&& x_end == uc8179->_width
+				&& y_end == uc8179->_height,
+			ESP_ERR_INVALID_ARG, TAG,
+			"Must update full window in non-copy mode");
+		videomem = color_data;
+	} else {
+		x_start += uc8179->x_gap;
+		x_end += uc8179->x_gap;
+		y_start += uc8179->y_gap;
+		y_end += uc8179->y_gap;
+
+		if (uc8179->swap_axes) {
+			int x = x_start;
+			x_start = y_start;
+			y_start = x;
+			x = x_end;
+			x_end = y_end;
+			y_end = x;
+		}
+		// TODO: move data to the framebuffer
+		videomem = uc8179->_framebuffer;
+	}
+	ESP_LOGD(TAG, "About to sent data with CMD_DTM1");
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM1,
+			uc8179->_zeroes, uc8179->_width * uc8179->_height / 8),
+		TAG, "CMD_DTM1 err");
+	ESP_LOGD(TAG, "About to sent data with CMD_DTM2");
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM2,
+			videomem, uc8179->_width * uc8179->_height / 8),
+		TAG, "CMD_DTM2 err");
+	// TODO: return without sending, rely on ready callback
+	ESP_LOGD(TAG, "About to sent CMD_DRF");
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_DRF, NULL, 0),
+		TAG, "CMD_DRF err");
+	vTaskDelay(pdMS_TO_TICKS(100));
+	uc8179_wait_busy(panel);
+
 	return ESP_OK;
 }
 
 static esp_err_t panel_uc8179_invert_color(esp_lcd_panel_t * panel,
 						bool invert_color_data)
 {
+	ESP_RETURN_ON_FALSE(false,
+		ESP_ERR_INVALID_ARG, TAG, "Invert color is not supported");
 	return ESP_OK;
 }
 
 static esp_err_t panel_uc8179_mirror(esp_lcd_panel_t * panel,
 						bool mirror_x, bool mirror_y)
 {
+	ESP_RETURN_ON_FALSE(false,
+		ESP_ERR_INVALID_ARG, TAG, "Mirroring is not supported");
 	return ESP_OK;
 }
 
 static esp_err_t panel_uc8179_swap_xy(esp_lcd_panel_t * panel, bool swap_axes)
 {
+	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
+	uc8179->swap_axes = swap_axes;
 	return ESP_OK;
 }
 
-static esp_err_t panel_uc8179_set_gap(esp_lcd_panel_t * panel, int x_gap,
-				       int y_gap)
+static esp_err_t panel_uc8179_set_gap(esp_lcd_panel_t * panel,
+				int x_gap, int y_gap)
 {
+	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
+	uc8179->x_gap = x_gap;
+	uc8179->y_gap = y_gap;
 	return ESP_OK;
 }
 
-static esp_err_t panel_uc8179_disp_on_off(esp_lcd_panel_t * panel, bool off)
+static esp_err_t panel_uc8179_disp_on_off(esp_lcd_panel_t * panel, bool on)
 {
+	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
+	esp_lcd_panel_io_handle_t io = uc8179->io;
+	ESP_LOGD(TAG, "About to sent %s", on ? "CMD_PON" : "CMD_POF");
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(
+			io, on ? CMD_PON : CMD_POF, NULL, 0),
+		TAG, "CMD_PON err");
+	vTaskDelay(pdMS_TO_TICKS(100));
+	uc8179_wait_busy(panel);
+
 	return ESP_OK;
 }
 
 static esp_err_t panel_uc8179_sleep(esp_lcd_panel_t * panel, bool sleep)
 {
+	ESP_RETURN_ON_FALSE(sleep,
+		ESP_ERR_INVALID_ARG, TAG, "Wakeup is not supported");
+	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
+	esp_lcd_panel_io_handle_t io = uc8179->io;
+	ESP_LOGD(TAG, "About to sent CMD_POF");
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param( io, CMD_POF, NULL, 0),
+		TAG, "CMD_PON err");
+	vTaskDelay(pdMS_TO_TICKS(100));
+	uc8179_wait_busy(panel);
+	ESP_LOGD(TAG, "About to sent CMD_DSLP");
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param( io, CMD_DSLP,
+			(uint8_t[]) { 0xa5 }, 1),
+		TAG, "CMD_DSLP err");
 	return ESP_OK;
 }
 
-
 static const esp_lcd_panel_t uc8179_base = {
-	.del = panel_uc8179_del,
 	.reset = panel_uc8179_reset,
 	.init = panel_uc8179_init,
+	.del = panel_uc8179_del,
 	.draw_bitmap = panel_uc8179_draw_bitmap,
-	.invert_color = panel_uc8179_invert_color,
-	.set_gap = panel_uc8179_set_gap,
+	.draw_bitmap_2d = NULL,
 	.mirror = panel_uc8179_mirror,
 	.swap_xy = panel_uc8179_swap_xy,
+	.set_gap = panel_uc8179_set_gap,
+	.invert_color = panel_uc8179_invert_color,
 	.disp_on_off = panel_uc8179_disp_on_off,
 	.disp_sleep = panel_uc8179_sleep,
 };
@@ -114,6 +356,10 @@ esp_err_t esp_lcd_new_panel_uc8179(const esp_lcd_panel_io_handle_t io,
 #if CONFIG_LCD_ENABLE_DEBUG_LOG
         esp_log_level_set(TAG, ESP_LOG_DEBUG);
 #endif
+	ESP_RETURN_ON_FALSE(io && panel_dev_config && ret_panel,
+		ESP_ERR_INVALID_ARG, TAG, "1 or more args is NULL");
+	esp_lcd_uc8179_config_t *uc8179_config =
+		panel_dev_config->vendor_config;
 	esp_err_t ret = ESP_OK;
 	uc8179_panel_t *uc8179 = NULL;
 	ESP_GOTO_ON_FALSE(io && panel_dev_config && ret_panel,
@@ -128,10 +374,42 @@ esp_err_t esp_lcd_new_panel_uc8179(const esp_lcd_panel_io_handle_t io,
 				GPIO_MODE_OUTPUT),
 			err, TAG, "configure GPIO for RST line failed");
 	}
-	uc8179->io = io;
+	if (uc8179_config->busy_gpio_num >= 0) {
+		ESP_GOTO_ON_ERROR(gpio_config(&(gpio_config_t){
+				.mode = GPIO_MODE_INPUT,
+				.pull_down_en = 1,
+				.pin_bit_mask = 1ULL <<
+					uc8179_config->busy_gpio_num,
+				.intr_type = GPIO_INTR_NEGEDGE,
+			}), err, TAG, "configure GPIO for BUSY line err");
+		ESP_GOTO_ON_ERROR(gpio_isr_handler_add(
+				uc8179_config->busy_gpio_num,
+				uc8179_gpio_isr_handler, uc8179
+			), err, TAG, "configure GPIO for BUSY line err");
+	}
 	uc8179->reset_gpio_num = panel_dev_config->reset_gpio_num;
-	uc8179->reset_level = panel_dev_config->flags.reset_active_high;
+	uc8179->reset_active_level = panel_dev_config->flags.reset_active_high;
+	uc8179->busy_gpio_num = uc8179_config->busy_gpio_num;
+	uc8179->_non_copy_mode = uc8179_config->non_copy_mode;
+	uc8179->_width = uc8179_config->width;
+	uc8179->_height = uc8179_config->height;
+	uc8179->io = io;
 	uc8179->base = uc8179_base;
+	if (uc8179->_non_copy_mode) {
+		uc8179->_framebuffer = NULL;
+	} else {
+		uc8179->_framebuffer = heap_caps_malloc(
+			uc8179->_width * uc8179->_height / 8, MALLOC_CAP_DMA);
+		ESP_GOTO_ON_FALSE(uc8179->_framebuffer,
+				ESP_ERR_NO_MEM, err, TAG,
+				"uc8179 allocating framebuffer err");
+	}
+	uc8179->_zeroes = heap_caps_malloc(
+		uc8179->_width * uc8179->_height / 8, MALLOC_CAP_DMA);
+	ESP_GOTO_ON_FALSE(uc8179->_zeroes, ESP_ERR_NO_MEM, err, TAG,
+			"uc8179 allocating zero buffer err");
+	memset(uc8179->_zeroes, 0, uc8179->_width * uc8179->_height / 8);
+
 	*ret_panel = &(uc8179->base);
 	ESP_LOGD(TAG, "new uc8179 panel @%p", uc8179);
 	return ESP_OK;
@@ -139,6 +417,9 @@ err:
 	if (uc8179) {
 		if (panel_dev_config->reset_gpio_num >= 0) {
 			gpio_reset_pin(panel_dev_config->reset_gpio_num);
+		}
+		if (uc8179_config->busy_gpio_num >= 0) {
+			gpio_reset_pin(uc8179_config->busy_gpio_num);
 		}
 		free(uc8179);
 	}

@@ -45,10 +45,12 @@ typedef struct {
 	int busy_gpio_num;	/*!< GPIO num of the BUSY pin */
 	bool non_copy_mode;	/*!< If the bitmap would be copied or not.
 				  Image rotation and mirror is limited. */
+	int width;		/*!< Display width. */
+	int height;		/*!< Display height. */
 } esp_lcd_uc8179_config_t;
 
 /**
- * @brief Create LCD panel for waveshare e-paper 5.83in V2 display
+ * @brief Create LCD panel for UC8179 based display
  *
  * @param[in] io LCD panel IO handle
  * @param[in] panel_dev_config general panel device configuration
@@ -79,7 +81,7 @@ esp_err_t esp_lcd_new_panel_uc8179(const esp_lcd_panel_io_handle_t io,
  *          - ESP_ERR_INVALID_ARG   if parameter is invalid
  *          - ESP_OK                on success
  */
-esp_err_t epaper_panel_refresh_screen(esp_lcd_panel_t *panel);
+esp_err_t uc8179_panel_refresh_screen(esp_lcd_panel_t *panel);
 
 /**
  * @brief Set the callback function
@@ -99,7 +101,7 @@ esp_err_t epaper_panel_refresh_screen(esp_lcd_panel_t *panel);
  * @return ESP_OK                on success
  *         ESP_ERR_INVALID_ARG   if parameter is invalid
  */
-esp_err_t epaper_panel_register_event_callbacks(esp_lcd_panel_t *panel,
+esp_err_t uc8179_register_event_callbacks(esp_lcd_panel_t *panel,
 		epaper_panel_callbacks_t *cbs, void *user_ctx);
 
 /**

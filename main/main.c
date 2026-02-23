@@ -69,8 +69,10 @@ void app_main(void)
 	ESP_ERROR_CHECK(spi_bus_initialize(SPIx_HOST,
 		&(spi_bus_config_t) {
 			.mosi_io_num = CONFIG_HWE_DISPLAY_SPI_MOSI,
-			.miso_io_num = -1,
+			.miso_io_num = CONFIG_HWE_DISPLAY_SPI_MISO,
 			.sclk_io_num = CONFIG_HWE_DISPLAY_SPI_SCK,
+			.quadwp_io_num = -1,
+			.quadhd_io_num = -1,
 			.max_transfer_sz = SOC_SPI_MAXIMUM_BUFFER_SIZE,
 			.flags = SPICOMMON_BUSFLAG_MASTER
 				| SPICOMMON_BUSFLAG_GPIO_PINS,
@@ -86,8 +88,8 @@ void app_main(void)
 			.dc_gpio_num = CONFIG_HWE_DISPLAY_SPI_DC,
 			.spi_mode = 0,
 			.pclk_hz = CONFIG_HWE_DISPLAY_SPI_FREQUENCY,
-			.lcd_cmd_bits = 0,
-			.lcd_param_bits = 0,
+			.lcd_cmd_bits = 8,
+			.lcd_param_bits = 8,
 			.trans_queue_depth = 17,
 		},
 		&io_handle
@@ -99,7 +101,7 @@ void app_main(void)
 	esp_lcd_panel_handle_t panel_handle = NULL;
 	ESP_ERROR_CHECK(esp_lcd_new_panel_uc8179(io_handle,
 		&(esp_lcd_panel_dev_config_t) {
-			.reset_gpio_num = GPIO_NUM_26,
+			.reset_gpio_num = CONFIG_HWE_DISPLAY_RST,
 			.flags.reset_active_high =
 				CONFIG_HWE_DISPLAY_RST_ACTIVE_LEVEL,
 			.vendor_config =
@@ -107,6 +109,8 @@ void app_main(void)
 					.busy_gpio_num =
 						CONFIG_HWE_DISPLAY_BUSY,
 					.non_copy_mode = true,
+					.width = CONFIG_HWE_DISPLAY_WIDTH,
+					.height = CONFIG_HWE_DISPLAY_HEIGHT,
 				},
 		},
 		&panel_handle));
@@ -116,10 +120,10 @@ void app_main(void)
 	ESP_LOGI(TAG, "Initializing e-Paper display...");
 	ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
 	vTaskDelay(100 / portTICK_PERIOD_MS);
-	ESP_LOGI(TAG, "Turning e-Paper display on...");
-	ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
+	// ESP_LOGI(TAG, "Turning e-Paper display on...");
+	// ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
 	// ESP_ERROR_CHECK(epaper_panel_set_custom_lut(panel_handle, ...);
-	vTaskDelay(100 / portTICK_PERIOD_MS);
+	// vTaskDelay(100 / portTICK_PERIOD_MS);
 
 	static SemaphoreHandle_t epaper_panel_semaphore;
 	epaper_panel_semaphore = xSemaphoreCreateBinary();
@@ -130,21 +134,23 @@ void app_main(void)
 	esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, CONFIG_HWE_DISPLAY_WIDTH,
 			CONFIG_HWE_DISPLAY_HEIGHT, empty_bitmap);
 
-	epaper_panel_register_event_callbacks(panel_handle,
+	uc8179_register_event_callbacks(panel_handle,
 		&(epaper_panel_callbacks_t) {
 			.on_epaper_refresh_done = give_semaphore_in_isr,
 		}, &epaper_panel_semaphore);
 
 	ESP_LOGI(TAG, "Drawing bitmap...");
 	xSemaphoreTake(epaper_panel_semaphore, portMAX_DELAY);
+	/*
 	ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, false, false));
 	ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, false));
 	ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_handle, false));
+	*/
 	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0,
 			CONFIG_HWE_DISPLAY_WIDTH, CONFIG_HWE_DISPLAY_HEIGHT,
 			BITMAP));
-	ESP_ERROR_CHECK(epaper_panel_refresh_screen(panel_handle));
+	ESP_ERROR_CHECK(uc8179_panel_refresh_screen(panel_handle));
 	vTaskDelay(pdMS_TO_TICKS(5000));
 	ESP_LOGI(TAG, "Go to sleep mode...");
-	esp_lcd_panel_disp_on_off(panel_handle, false);
+	esp_lcd_panel_disp_sleep(panel_handle, true);
 }
