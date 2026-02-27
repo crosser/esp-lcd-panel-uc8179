@@ -1,0 +1,5 @@
+dependencies:
+  idf: ">=5.0"
+  esp-lcd-panel-uc8179:
+    # Use local component in the top directory
+    path: "../../../"
