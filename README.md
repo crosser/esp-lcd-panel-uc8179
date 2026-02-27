@@ -17,7 +17,7 @@ thing as Good Display model GDEY0583T81 that uses IC UC8179.
 Resolution is 648x480.
 See https://www.good-display.com/product/440.html
 
-Template for the driver:
+Inspiration for the driver:
 
 [esp-bsp driver for ssd1681](
 https://github.com/espressif/esp-bsp/tree/master/components/lcd/esp_lcd_ssd1681

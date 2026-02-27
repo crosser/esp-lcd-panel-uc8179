@@ -3,7 +3,7 @@
 #include <freertos/FreeRTOS.h>
 #include <esp_err.h>
 #include <esp_log.h>
-#include <esp_timer.h>
+#include <esp_sleep.h>
 #include <driver/gpio.h>
 #include <driver/spi_master.h>
 #include <esp_lcd_types.h>
@@ -27,16 +27,6 @@
 
 #define BITMAP_SIZE (CONFIG_HWE_DISPLAY_WIDTH * CONFIG_HWE_DISPLAY_HEIGHT / 8)
 
-#define BLINK_TIME (2 * 1000000)
-
-static bool led_on = false;
-
-static void blink_task(void *arg)
-{
-	led_on = !led_on;
-	ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_2, led_on));
-}
-
 static bool give_semaphore_in_isr(const esp_lcd_panel_handle_t handle,
 		const void *edata, void *user_data)
 {
@@ -53,18 +43,6 @@ static bool give_semaphore_in_isr(const esp_lcd_panel_handle_t handle,
 
 void app_main(void)
 {
-	/* Just to make sure the board works, set up 2sec on 2 off blink */
-	ESP_ERROR_CHECK(gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT));
-	esp_timer_handle_t blink_timer;
-	ESP_ERROR_CHECK(esp_timer_create(
-		&(esp_timer_create_args_t) {
-			.callback = blink_task,
-			.name = "blink timer",
-		},
-		&blink_timer));
-	ESP_ERROR_CHECK(esp_timer_start_periodic(blink_timer, BLINK_TIME));
-	ESP_LOGI(TAG, "Blinker set up.");
-
 	ESP_LOGI(TAG, "Initializing SPI bus");
 	ESP_ERROR_CHECK(spi_bus_initialize(SPIx_HOST,
 		&(spi_bus_config_t) {
@@ -97,7 +75,9 @@ void app_main(void)
 	// NOTE: Please call gpio_install_isr_service() manually
 	// before esp_lcd_new_panel_uc8179() because gpio_isr_handler_add()
 	// is called in esp_lcd_new_panel_uc8179()
+	ESP_LOGI(TAG, "Install ISR service for GPIO");
 	gpio_install_isr_service(0);
+	ESP_LOGI(TAG, "Initialize uc8179 panel driver");
 	esp_lcd_panel_handle_t panel_handle = NULL;
 	ESP_ERROR_CHECK(esp_lcd_new_panel_uc8179(io_handle,
 		&(esp_lcd_panel_dev_config_t) {
@@ -120,8 +100,6 @@ void app_main(void)
 	ESP_LOGI(TAG, "Initializing e-Paper display...");
 	ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
 	vTaskDelay(100 / portTICK_PERIOD_MS);
-	// ESP_LOGI(TAG, "Turning e-Paper display on...");
-	// ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
 	// ESP_ERROR_CHECK(epaper_panel_set_custom_lut(panel_handle, ...);
 	// vTaskDelay(100 / portTICK_PERIOD_MS);
 
@@ -129,6 +107,7 @@ void app_main(void)
 	epaper_panel_semaphore = xSemaphoreCreateBinary();
 	xSemaphoreGive(epaper_panel_semaphore);
 
+	ESP_LOGI(TAG, "Clear screen");
 	uint8_t *empty_bitmap = heap_caps_malloc(BITMAP_SIZE, MALLOC_CAP_DMA);
 	memset(empty_bitmap, 0, BITMAP_SIZE);
 	esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, CONFIG_HWE_DISPLAY_WIDTH,
@@ -139,6 +118,7 @@ void app_main(void)
 			.on_epaper_refresh_done = give_semaphore_in_isr,
 		}, &epaper_panel_semaphore);
 
+	vTaskDelay(pdMS_TO_TICKS(5000));
 	ESP_LOGI(TAG, "Drawing bitmap...");
 	xSemaphoreTake(epaper_panel_semaphore, portMAX_DELAY);
 	/*
@@ -149,8 +129,8 @@ void app_main(void)
 	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0,
 			CONFIG_HWE_DISPLAY_WIDTH, CONFIG_HWE_DISPLAY_HEIGHT,
 			BITMAP));
-	ESP_ERROR_CHECK(uc8179_panel_refresh_screen(panel_handle));
-	vTaskDelay(pdMS_TO_TICKS(5000));
-	ESP_LOGI(TAG, "Go to sleep mode...");
+	ESP_LOGI(TAG, "Put panel to sleep...");
 	esp_lcd_panel_disp_sleep(panel_handle, true);
+	ESP_LOGI(TAG, "Go to deep sleep mode...");
+	esp_deep_sleep_start();
 }
