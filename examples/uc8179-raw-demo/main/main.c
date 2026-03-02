@@ -88,7 +88,6 @@ void app_main(void)
 				&(esp_lcd_uc8179_config_t) {
 					.busy_gpio_num =
 						CONFIG_HWE_DISPLAY_BUSY,
-					.non_copy_mode = true,
 					.width = CONFIG_HWE_DISPLAY_WIDTH,
 					.height = CONFIG_HWE_DISPLAY_HEIGHT,
 				},
@@ -121,11 +120,6 @@ void app_main(void)
 	vTaskDelay(pdMS_TO_TICKS(5000));
 	ESP_LOGI(TAG, "Drawing bitmap...");
 	xSemaphoreTake(epaper_panel_semaphore, portMAX_DELAY);
-	/*
-	ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, false, false));
-	ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, false));
-	ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_handle, false));
-	*/
 	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0,
 			CONFIG_HWE_DISPLAY_WIDTH, CONFIG_HWE_DISPLAY_HEIGHT,
 			BITMAP));

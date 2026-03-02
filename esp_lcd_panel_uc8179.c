@@ -58,14 +58,11 @@ typedef struct {
 	bool reset_active_level;
 	int busy_gpio_num;
 	uc8179_panel_callback_t refresh_done_isr_callback;
-	bool _non_copy_mode;
-	int _width;
-	int _height;
-	uint8_t *_framebuffer;
+	int width;
+	int height;
 	uint8_t *_zeroes;
 	int x_gap;
 	int y_gap;
-	bool swap_axes;
 } uc8179_panel_t;
 
 static esp_err_t uc8179_wait_busy(esp_lcd_panel_t *panel)
@@ -139,9 +136,6 @@ static esp_err_t panel_uc8179_del(esp_lcd_panel_t * panel)
 		gpio_reset_pin(uc8179->reset_gpio_num);
 	}
 	gpio_reset_pin(uc8179->busy_gpio_num);
-	if ((uc8179->_framebuffer) && (!(uc8179->_non_copy_mode))) {
-		free(uc8179->_framebuffer);
-	}
 	if (uc8179->_zeroes) {
 		free(uc8179->_zeroes);
 	}
@@ -199,10 +193,10 @@ static esp_err_t panel_uc8179_init(esp_lcd_panel_t * panel)
 	ESP_LOGD(TAG, "About to sent CMD_TRES");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_TRES,
 			(uint8_t[]) {
-				uc8179->_width >> 8,
-				uc8179->_width & 0xff,
-				uc8179->_height >> 8,
-			       	uc8179->_height & 0xff }, 4),
+				uc8179->width >> 8,
+				uc8179->width & 0xff,
+				uc8179->height >> 8,
+				uc8179->height & 0xff }, 4),
 		TAG, "CMD_TRES err");
 	ESP_LOGD(TAG, "About to sent CMD_DSPI");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_DSPI,
@@ -226,39 +220,20 @@ static esp_err_t panel_uc8179_draw_bitmap(esp_lcd_panel_t * panel,
 {
 	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
 	esp_lcd_panel_io_handle_t io = uc8179->io;
-	const uint8_t *videomem;
 
-	if (uc8179->_non_copy_mode) {
-		ESP_RETURN_ON_FALSE(x_start == 0 && y_start == 0
-				&& x_end == uc8179->_width
-				&& y_end == uc8179->_height,
-			ESP_ERR_INVALID_ARG, TAG,
-			"Must update full window in non-copy mode");
-		videomem = color_data;
-	} else {
-		x_start += uc8179->x_gap;
-		x_end += uc8179->x_gap;
-		y_start += uc8179->y_gap;
-		y_end += uc8179->y_gap;
-
-		if (uc8179->swap_axes) {
-			int x = x_start;
-			x_start = y_start;
-			y_start = x;
-			x = x_end;
-			x_end = y_end;
-			y_end = x;
-		}
-		// TODO: move data to the framebuffer
-		videomem = uc8179->_framebuffer;
-	}
+	ESP_RETURN_ON_FALSE(x_start >= 0 && y_start >= 0
+			&& x_end <= uc8179->width
+			&& y_end <= uc8179->height
+			&& x_start < x_end && y_start < y_end,
+		ESP_ERR_INVALID_ARG, TAG,
+		"Coordinates ourside the panel dimensions");
 	ESP_LOGD(TAG, "About to sent data with CMD_DTM1");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM1,
-			uc8179->_zeroes, uc8179->_width * uc8179->_height / 8),
+			uc8179->_zeroes, (x_end - x_start) * (y_end - y_start) / 8),
 		TAG, "CMD_DTM1 err");
 	ESP_LOGD(TAG, "About to sent data with CMD_DTM2");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM2,
-			videomem, uc8179->_width * uc8179->_height / 8),
+			color_data, (x_end - x_start) * (y_end - y_start) / 8),
 		TAG, "CMD_DTM2 err");
 	// TODO: return without sending, rely on ready callback
 	ESP_LOGD(TAG, "About to sent CMD_DRF");
@@ -267,38 +242,6 @@ static esp_err_t panel_uc8179_draw_bitmap(esp_lcd_panel_t * panel,
 	vTaskDelay(pdMS_TO_TICKS(100));
 	uc8179_wait_busy(panel);
 
-	return ESP_OK;
-}
-
-static esp_err_t panel_uc8179_invert_color(esp_lcd_panel_t * panel,
-						bool invert_color_data)
-{
-	ESP_RETURN_ON_FALSE(false,
-		ESP_ERR_INVALID_ARG, TAG, "Invert color is not supported");
-	return ESP_OK;
-}
-
-static esp_err_t panel_uc8179_mirror(esp_lcd_panel_t * panel,
-						bool mirror_x, bool mirror_y)
-{
-	ESP_RETURN_ON_FALSE(false,
-		ESP_ERR_INVALID_ARG, TAG, "Mirroring is not supported");
-	return ESP_OK;
-}
-
-static esp_err_t panel_uc8179_swap_xy(esp_lcd_panel_t * panel, bool swap_axes)
-{
-	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
-	uc8179->swap_axes = swap_axes;
-	return ESP_OK;
-}
-
-static esp_err_t panel_uc8179_set_gap(esp_lcd_panel_t * panel,
-				int x_gap, int y_gap)
-{
-	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
-	uc8179->x_gap = x_gap;
-	uc8179->y_gap = y_gap;
 	return ESP_OK;
 }
 
@@ -339,11 +282,6 @@ static const esp_lcd_panel_t uc8179_base = {
 	.init = panel_uc8179_init,
 	.del = panel_uc8179_del,
 	.draw_bitmap = panel_uc8179_draw_bitmap,
-	.draw_bitmap_2d = NULL,
-	.mirror = panel_uc8179_mirror,
-	.swap_xy = panel_uc8179_swap_xy,
-	.set_gap = panel_uc8179_set_gap,
-	.invert_color = panel_uc8179_invert_color,
 	.disp_on_off = panel_uc8179_disp_on_off,
 	.disp_sleep = panel_uc8179_sleep,
 };
@@ -390,25 +328,15 @@ esp_err_t esp_lcd_new_panel_uc8179(const esp_lcd_panel_io_handle_t io,
 	uc8179->reset_gpio_num = panel_dev_config->reset_gpio_num;
 	uc8179->reset_active_level = panel_dev_config->flags.reset_active_high;
 	uc8179->busy_gpio_num = uc8179_config->busy_gpio_num;
-	uc8179->_non_copy_mode = uc8179_config->non_copy_mode;
-	uc8179->_width = uc8179_config->width;
-	uc8179->_height = uc8179_config->height;
+	uc8179->width = uc8179_config->width;
+	uc8179->height = uc8179_config->height;
 	uc8179->io = io;
 	uc8179->base = uc8179_base;
-	if (uc8179->_non_copy_mode) {
-		uc8179->_framebuffer = NULL;
-	} else {
-		uc8179->_framebuffer = heap_caps_malloc(
-			uc8179->_width * uc8179->_height / 8, MALLOC_CAP_DMA);
-		ESP_GOTO_ON_FALSE(uc8179->_framebuffer,
-				ESP_ERR_NO_MEM, err, TAG,
-				"uc8179 allocating framebuffer err");
-	}
 	uc8179->_zeroes = heap_caps_malloc(
-		uc8179->_width * uc8179->_height / 8, MALLOC_CAP_DMA);
+		uc8179->width * uc8179->height / 8, MALLOC_CAP_DMA);
 	ESP_GOTO_ON_FALSE(uc8179->_zeroes, ESP_ERR_NO_MEM, err, TAG,
 			"uc8179 allocating zero buffer err");
-	memset(uc8179->_zeroes, 0, uc8179->_width * uc8179->_height / 8);
+	memset(uc8179->_zeroes, 0, uc8179->width * uc8179->height / 8);
 
 	*ret_panel = &(uc8179->base);
 	ESP_LOGD(TAG, "new uc8179 panel @%p", uc8179);

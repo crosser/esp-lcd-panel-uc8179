@@ -43,8 +43,6 @@ typedef struct {
  */
 typedef struct {
 	int busy_gpio_num;	/*!< GPIO num of the BUSY pin */
-	bool non_copy_mode;	/*!< If the bitmap would be copied or not.
-				  Image rotation and mirror is limited. */
 	int width;		/*!< Display width. */
 	int height;		/*!< Display height. */
 } esp_lcd_uc8179_config_t;
