@@ -27,13 +27,11 @@
 
 #define BITMAP_SIZE (CONFIG_HWE_DISPLAY_WIDTH * CONFIG_HWE_DISPLAY_HEIGHT / 8)
 
-static bool give_semaphore_in_isr(const esp_lcd_panel_handle_t handle,
-		const void *edata, void *user_data)
+static bool give_semaphore_in_isr(void *user_ctx)
 {
-	SemaphoreHandle_t *epaper_panel_semaphore_ptr = user_data;
+	SemaphoreHandle_t *epd_ready_ptr = user_ctx;
 	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-	xSemaphoreGiveFromISR(*epaper_panel_semaphore_ptr,
-			&xHigherPriorityTaskWoken);
+	xSemaphoreGiveFromISR(*epd_ready_ptr, &xHigherPriorityTaskWoken);
 	if (xHigherPriorityTaskWoken == pdTRUE) {
 		portYIELD_FROM_ISR();
 		return true;
@@ -102,27 +100,32 @@ void app_main(void)
 	// ESP_ERROR_CHECK(epaper_panel_set_custom_lut(panel_handle, ...);
 	// vTaskDelay(100 / portTICK_PERIOD_MS);
 
-	static SemaphoreHandle_t epaper_panel_semaphore;
-	epaper_panel_semaphore = xSemaphoreCreateBinary();
-	xSemaphoreGive(epaper_panel_semaphore);
+	SemaphoreHandle_t epd_ready = xSemaphoreCreateBinary();
+	// Semaphore is created initially "taken"
+	ESP_ERROR_CHECK(epd_register_event_callbacks(
+		panel_handle,
+		&(epd_io_callbacks_t) {
+			.on_color_trans_done = give_semaphore_in_isr,
+		},
+		&epd_ready));
 
 	ESP_LOGI(TAG, "Clear screen");
 	uint8_t *empty_bitmap = heap_caps_malloc(BITMAP_SIZE, MALLOC_CAP_DMA);
 	memset(empty_bitmap, 0, BITMAP_SIZE);
 	esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, CONFIG_HWE_DISPLAY_WIDTH,
 			CONFIG_HWE_DISPLAY_HEIGHT, empty_bitmap);
-
-	uc8179_register_event_callbacks(panel_handle,
-		&(epaper_panel_callbacks_t) {
-			.on_epaper_refresh_done = give_semaphore_in_isr,
-		}, &epaper_panel_semaphore);
+	ESP_LOGI(TAG, "Waiting for completion");
+	xSemaphoreTake(epd_ready, portMAX_DELAY);
+	ESP_LOGI(TAG, "Completion");
 
 	vTaskDelay(pdMS_TO_TICKS(5000));
 	ESP_LOGI(TAG, "Drawing bitmap...");
-	xSemaphoreTake(epaper_panel_semaphore, portMAX_DELAY);
 	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0,
 			CONFIG_HWE_DISPLAY_WIDTH, CONFIG_HWE_DISPLAY_HEIGHT,
 			BITMAP));
+	ESP_LOGI(TAG, "Waiting for completion");
+	xSemaphoreTake(epd_ready, portMAX_DELAY);
+	ESP_LOGI(TAG, "Completion");
 	ESP_LOGI(TAG, "Put panel to sleep...");
 	esp_lcd_panel_disp_sleep(panel_handle, true);
 	ESP_LOGI(TAG, "Go to deep sleep mode...");

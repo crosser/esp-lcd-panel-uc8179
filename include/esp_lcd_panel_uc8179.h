@@ -15,26 +15,11 @@
 extern "C" {
 #endif
 
-/**
-* @brief Prototype of uc8179 driver event callback
-*
-* @param[in] handle    esp_lcd_panel_handle_t esp_lcd driver handle
-* @param[in] edata     reserved
-* @param[in] user_data User registered context, registered in
-* 		`epaper_panel_register_event_callbacks()`
-*
-* @return Whether a high priority task is woken up by this function
-*/
-typedef bool (*esp_lcd_epaper_panel_cb_t)(const esp_lcd_panel_handle_t handle,
-		const void *edata, void *user_data);
+typedef bool(*epd_on_color_trans_done_cb_t)(void *user_ctx);
 
-/**
- * @brief Type of uc8179 e-paper callbacks
- */
-typedef struct {
-    esp_lcd_epaper_panel_cb_t on_epaper_refresh_done;
-    /*!< Callback invoked when e-paper refresh finishes */
-} epaper_panel_callbacks_t;
+typedef struct epd_io_callbacks {
+	epd_on_color_trans_done_cb_t on_color_trans_done;
+} epd_io_callbacks_t;
 
 /**
  * @brief Type of additional configuration needed by e-paper panel
@@ -64,24 +49,6 @@ esp_err_t esp_lcd_new_panel_uc8179(const esp_lcd_panel_io_handle_t io,
 					esp_lcd_panel_handle_t * ret_panel);
 
 /**
- * @brief Refresh the e-Paper
- *
- * @note This function is called automatically in `draw_bitmap()` function.
- *       This function will return right after the refresh commands
- *       finish transmitting.
- * @attention
- *       If you want to call this function, you have to wait manually
- *       until the BUSY pin goes LOW
- *       before calling other functions that interacts with the e-paper.
- *
- * @param[in] panel LCD panel handle
- * @return
- *          - ESP_ERR_INVALID_ARG   if parameter is invalid
- *          - ESP_OK                on success
- */
-esp_err_t uc8179_panel_refresh_screen(esp_lcd_panel_t *panel);
-
-/**
  * @brief Set the callback function
  *
  * @note The callback function `on_epaper_refresh_done` will only be called
@@ -99,8 +66,8 @@ esp_err_t uc8179_panel_refresh_screen(esp_lcd_panel_t *panel);
  * @return ESP_OK                on success
  *         ESP_ERR_INVALID_ARG   if parameter is invalid
  */
-esp_err_t uc8179_register_event_callbacks(esp_lcd_panel_t *panel,
-		epaper_panel_callbacks_t *cbs, void *user_ctx);
+esp_err_t epd_register_event_callbacks(esp_lcd_panel_t *panel,
+		epd_io_callbacks_t *cbs, void *user_ctx);
 
 /**
  * @brief Set a custom waveform lut
@@ -118,9 +85,10 @@ esp_err_t uc8179_register_event_callbacks(esp_lcd_panel_t *panel,
  * @return  ESP_OK                on success
  *          ESP_ERR_INVALID_ARG   if parameter is invalid
  */
-esp_err_t epaper_panel_set_custom_lut(esp_lcd_panel_t *panel,
+esp_err_t epd_set_custom_lut(esp_lcd_panel_t *panel,
 		uint8_t *lut, size_t size);
 
 #ifdef __cplusplus
 }
 #endif
+
