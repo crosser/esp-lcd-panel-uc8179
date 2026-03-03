@@ -234,12 +234,10 @@ static esp_err_t panel_uc8179_draw_bitmap(esp_lcd_panel_t * panel,
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM2,
 			color_data, (x_end - x_start) * (y_end - y_start) / 8),
 		TAG, "CMD_DTM2 err");
-	// TODO: return without sending, rely on ready callback
 	ESP_LOGD(TAG, "About to sent CMD_DRF");
-	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_DRF, NULL, 0),
+	// put DRF in the queue of async transactions, use "color" command
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DRF, NULL, 0),
 		TAG, "CMD_DRF err");
-	vTaskDelay(pdMS_TO_TICKS(100));
-	// uc8179_wait_busy(panel);
 
 	return ESP_OK;
 }
