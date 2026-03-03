@@ -67,9 +67,13 @@ static esp_err_t uc8179_wait_busy(esp_lcd_panel_t *panel)
 	uint8_t flg;
 #endif
 	TickType_t start, end;
+	int lvl;
 
+	ESP_LOGD(TAG, "start busy_wait");
 	start = xTaskGetTickCount();
-	while (!gpio_get_level(uc8179->busy_gpio_num)) {
+	while ((lvl = gpio_get_level(uc8179->busy_gpio_num)) ==
+			uc8179->busy_gpio_lvl) {
+		ESP_LOGD(TAG, "Busy level is %d", lvl);
 #if 0
 		ESP_LOGD(TAG, "About to sent CMD_FLG");
 		ESP_RETURN_ON_ERROR(esp_lcd_panel_io_rx_param(io, CMD_FLG,
@@ -120,10 +124,15 @@ esp_err_t epd_register_event_callbacks(esp_lcd_panel_t *panel,
 static esp_err_t panel_uc8179_del(esp_lcd_panel_t * panel)
 {
 	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
-	if ((uc8179->reset_gpio_num) >= 0) {
+	if (uc8179->reset_gpio_num >= 0) {
 		gpio_reset_pin(uc8179->reset_gpio_num);
 	}
-	gpio_reset_pin(uc8179->busy_gpio_num);
+	if (uc8179->busy_gpio_num >= 0) {
+		gpio_reset_pin(uc8179->busy_gpio_num);
+	}
+	if (uc8179->led_gpio_num >= 0) {
+		gpio_reset_pin(uc8179->led_gpio_num);
+	}
 	if (uc8179->_zeroes) {
 		free(uc8179->_zeroes);
 	}
@@ -137,25 +146,20 @@ static esp_err_t panel_uc8179_reset(esp_lcd_panel_t * panel)
 	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
 
 	if (uc8179->reset_gpio_num >= 0) {
-		ESP_RETURN_ON_ERROR(gpio_set_level(
-				uc8179->reset_gpio_num,
-				uc8179->reset_active_level),
-			TAG, "gpio_set_level active error");
-		vTaskDelay(pdMS_TO_TICKS(200));
-	}
-	if (uc8179->reset_gpio_num >= 0) {
-		ESP_RETURN_ON_ERROR(gpio_set_level(
-				uc8179->reset_gpio_num,
-				!uc8179->reset_active_level),
-			TAG, "gpio_set_level inactive error");
-		vTaskDelay(pdMS_TO_TICKS(5));
-	}
-	if (uc8179->reset_gpio_num >= 0) {
-		ESP_RETURN_ON_ERROR(gpio_set_level(
-				uc8179->reset_gpio_num,
-				uc8179->reset_active_level),
-			TAG, "gpio_set_level active1 again error");
-		vTaskDelay(pdMS_TO_TICKS(200));
+		int delays[3] = {200, 5, 200};
+		int lvl = uc8179->reset_active_level;
+
+		ESP_RETURN_ON_ERROR(gpio_set_direction(uc8179->reset_gpio_num,
+				GPIO_MODE_OUTPUT),
+			TAG, "configure GPIO for RST line failed");
+		for (int i = 0; i < 3; i++) {
+			ESP_RETURN_ON_ERROR(gpio_set_level(
+					uc8179->reset_gpio_num, lvl),
+				TAG, "gpio_set_level active error");
+			ESP_LOGD(TAG,"reset %d, delay %d", lvl, delays[i]);
+			vTaskDelay(pdMS_TO_TICKS(delays[i]));
+			lvl = !lvl;
+		}
 	}
 	return ESP_OK;
 }
@@ -166,8 +170,26 @@ static esp_err_t panel_uc8179_init(esp_lcd_panel_t * panel)
 	esp_lcd_panel_io_handle_t io = uc8179->io;
 
 	if (uc8179->led_gpio_num >= 0) {
-		ESP_ERROR_CHECK(gpio_set_direction(uc8179->led_gpio_num,
-				GPIO_MODE_OUTPUT));
+		ESP_RETURN_ON_ERROR(gpio_set_direction(uc8179->led_gpio_num,
+				GPIO_MODE_OUTPUT),
+			TAG, "led pin set direction error");
+		ESP_RETURN_ON_ERROR(gpio_set_level(uc8179->led_gpio_num, 0),
+			TAG, "led pin set level error");
+	}
+	if (uc8179->busy_gpio_num >= 0) {
+		ESP_RETURN_ON_ERROR(gpio_config(&(gpio_config_t){
+				.mode = GPIO_MODE_INPUT,
+				.pull_down_en = 1,
+				.pin_bit_mask = 1ULL <<
+					uc8179->busy_gpio_num,
+				.intr_type = uc8179->busy_gpio_lvl ?
+					GPIO_INTR_NEGEDGE : GPIO_INTR_POSEDGE,
+			}), TAG, "configure GPIO for BUSY line err");
+		ESP_RETURN_ON_ERROR(gpio_isr_handler_add(
+				uc8179->busy_gpio_num,
+				uc8179_gpio_isr_handler, uc8179
+			), TAG, "configure GPIO for BUSY line err");
+		gpio_intr_disable(uc8179->busy_gpio_num);
 	}
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_register_event_callbacks(
 			io,
@@ -302,33 +324,11 @@ esp_err_t esp_lcd_new_panel_uc8179(const esp_lcd_panel_io_handle_t io,
 	uc8179 = calloc(1, sizeof(uc8179_panel_t));
 	ESP_GOTO_ON_FALSE(uc8179,
 		ESP_ERR_NO_MEM, err, TAG, "no mem for uc8179 panel");
-	if (panel_dev_config->reset_gpio_num >= 0) {
-		ESP_GOTO_ON_ERROR(
-			gpio_set_direction(
-				panel_dev_config->reset_gpio_num,
-				GPIO_MODE_OUTPUT),
-			err, TAG, "configure GPIO for RST line failed");
-	}
-	if (uc8179_config->busy_gpio_num >= 0) {
-		ESP_GOTO_ON_ERROR(gpio_config(&(gpio_config_t){
-				.mode = GPIO_MODE_INPUT,
-				.pull_down_en = 1,
-				.pin_bit_mask = 1ULL <<
-					uc8179_config->busy_gpio_num,
-				.intr_type = uc8179_config->busy_gpio_lvl ?
-					GPIO_INTR_NEGEDGE : GPIO_INTR_POSEDGE,
-			}), err, TAG, "configure GPIO for BUSY line err");
-		ESP_GOTO_ON_ERROR(gpio_isr_handler_add(
-				uc8179_config->busy_gpio_num,
-				uc8179_gpio_isr_handler, uc8179
-			), err, TAG, "configure GPIO for BUSY line err");
-	}
-	gpio_intr_disable(uc8179->busy_gpio_num);
+	uc8179->led_gpio_num = uc8179_config->led_gpio_num;
 	uc8179->reset_gpio_num = panel_dev_config->reset_gpio_num;
 	uc8179->reset_active_level = panel_dev_config->flags.reset_active_high;
 	uc8179->busy_gpio_num = uc8179_config->busy_gpio_num;
 	uc8179->busy_gpio_lvl = uc8179_config->busy_gpio_lvl;
-	uc8179->led_gpio_num = uc8179_config->led_gpio_num;
 	uc8179->width = uc8179_config->width;
 	uc8179->height = uc8179_config->height;
 	uc8179->io = io;
@@ -344,12 +344,6 @@ esp_err_t esp_lcd_new_panel_uc8179(const esp_lcd_panel_io_handle_t io,
 	return ESP_OK;
 err:
 	if (uc8179) {
-		if (panel_dev_config->reset_gpio_num >= 0) {
-			gpio_reset_pin(panel_dev_config->reset_gpio_num);
-		}
-		if (uc8179_config->busy_gpio_num >= 0) {
-			gpio_reset_pin(uc8179_config->busy_gpio_num);
-		}
 		free(uc8179);
 	}
 	return ret;
