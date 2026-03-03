@@ -9,9 +9,6 @@
 #include <sys/cdefs.h>
 #include "sdkconfig.h"
 
-#define CONFIG_LCD_ENABLE_DEBUG_LOG 1  /* this should be in the Kconfig */
-#define CONFIG_LCD_ENABLE_DEBUG_PIN 2
-
 #if CONFIG_LCD_ENABLE_DEBUG_LOG
 // The local log level must be defined before including esp_log.h
 // Set the maximum log level for this source file
@@ -53,6 +50,8 @@ typedef struct {
 	int reset_gpio_num;
 	bool reset_active_level;
 	int busy_gpio_num;
+	bool busy_gpio_lvl;
+	int led_gpio_num;
 	int width;
 	int height;
 	epd_on_color_trans_done_cb_t user_callback;
@@ -89,9 +88,9 @@ static esp_err_t uc8179_wait_busy(esp_lcd_panel_t *panel)
 static void uc8179_gpio_isr_handler(void *user_ctx)
 {
 	uc8179_panel_t *uc8179 = user_ctx;
-#ifdef CONFIG_LCD_ENABLE_DEBUG_PIN
-	ESP_ERROR_CHECK(gpio_set_level(CONFIG_LCD_ENABLE_DEBUG_PIN, 0));
-#endif
+	if (uc8179->led_gpio_num >= 0) {
+		ESP_ERROR_CHECK(gpio_set_level(uc8179->led_gpio_num, 0));
+	}
 	gpio_intr_disable(uc8179->busy_gpio_num);
 	if (uc8179->user_callback) {
 		(uc8179->user_callback)(uc8179->user_ctx);
@@ -102,9 +101,9 @@ static bool uc8179_io_callback(esp_lcd_panel_io_handle_t panel_io,
 		esp_lcd_panel_io_event_data_t *edata, void *user_ctx)
 {
 	uc8179_panel_t *uc8179 = user_ctx;
-#ifdef CONFIG_LCD_ENABLE_DEBUG_PIN
-	ESP_ERROR_CHECK(gpio_set_level(CONFIG_LCD_ENABLE_DEBUG_PIN, 1));
-#endif
+	if (uc8179->led_gpio_num >= 0) {
+		ESP_ERROR_CHECK(gpio_set_level(uc8179->led_gpio_num, 1));
+	}
 	gpio_intr_enable(uc8179->busy_gpio_num);
 	return false;
 }
@@ -166,10 +165,10 @@ static esp_err_t panel_uc8179_init(esp_lcd_panel_t * panel)
 	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
 	esp_lcd_panel_io_handle_t io = uc8179->io;
 
-#ifdef CONFIG_LCD_ENABLE_DEBUG_PIN
-	ESP_ERROR_CHECK(gpio_set_direction(CONFIG_LCD_ENABLE_DEBUG_PIN,
+	if (uc8179->led_gpio_num >= 0) {
+		ESP_ERROR_CHECK(gpio_set_direction(uc8179->led_gpio_num,
 				GPIO_MODE_OUTPUT));
-#endif
+	}
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_register_event_callbacks(
 			io,
 			&(esp_lcd_panel_io_callbacks_t) {
@@ -318,7 +317,8 @@ esp_err_t esp_lcd_new_panel_uc8179(const esp_lcd_panel_io_handle_t io,
 				.pull_down_en = 1,
 				.pin_bit_mask = 1ULL <<
 					uc8179_config->busy_gpio_num,
-				.intr_type = GPIO_INTR_POSEDGE,
+				.intr_type = uc8179_config->busy_gpio_lvl ?
+					GPIO_INTR_NEGEDGE : GPIO_INTR_POSEDGE,
 			}), err, TAG, "configure GPIO for BUSY line err");
 		ESP_GOTO_ON_ERROR(gpio_isr_handler_add(
 				uc8179_config->busy_gpio_num,
@@ -329,6 +329,8 @@ esp_err_t esp_lcd_new_panel_uc8179(const esp_lcd_panel_io_handle_t io,
 	uc8179->reset_gpio_num = panel_dev_config->reset_gpio_num;
 	uc8179->reset_active_level = panel_dev_config->flags.reset_active_high;
 	uc8179->busy_gpio_num = uc8179_config->busy_gpio_num;
+	uc8179->busy_gpio_lvl = uc8179_config->busy_gpio_lvl;
+	uc8179->led_gpio_num = uc8179_config->led_gpio_num;
 	uc8179->width = uc8179_config->width;
 	uc8179->height = uc8179_config->height;
 	uc8179->io = io;

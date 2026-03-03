@@ -14,8 +14,9 @@
 
 #include "sdkconfig.h"
 #include "img_bitmap.h"
+#include "blackcircle.h"
 
-#define TAG "panel_uc8179"
+#define TAG "uc8179_demo"
 
 #if defined(CONFIG_HWE_DISPLAY_SPI1_HOST)
 # define SPIx_HOST SPI1_HOST
@@ -23,6 +24,22 @@
 # define SPIx_HOST SPI2_HOST
 #else
 # error "SPI host 1 or 2 must be selected"
+#endif
+
+#if defined(CONFIG_HWE_DISPLAY_RST_ACTIVE_LEVEL_LOW)
+# define CONFIG_HWE_DISPLAY_RST_ACTIVE_LEVEL 0
+#elif defined(CONFIG_HWE_DISPLAY_RST_ACTIVE_LEVEL_HIGH)
+# define CONFIG_HWE_DISPLAY_RST_ACTIVE_LEVEL 1
+#else
+# error "RST_ACTIVE_LEVEL must be selected"
+#endif
+
+#if defined(CONFIG_HWE_DISPLAY_BUSY_LEVEL_LOW)
+# define CONFIG_HWE_DISPLAY_BUSY_LEVEL 0
+#elif defined(CONFIG_HWE_DISPLAY_BUSY_LEVEL_HIGH)
+# define CONFIG_HWE_DISPLAY_BUSY_LEVEL 1
+#else
+# error "BUSY level must be selected"
 #endif
 
 #define BITMAP_SIZE (CONFIG_HWE_DISPLAY_WIDTH * CONFIG_HWE_DISPLAY_HEIGHT / 8)
@@ -84,8 +101,11 @@ void app_main(void)
 				CONFIG_HWE_DISPLAY_RST_ACTIVE_LEVEL,
 			.vendor_config =
 				&(esp_lcd_uc8179_config_t) {
+					.led_gpio_num =CONFIG_HWE_DISPLAY_LED,
 					.busy_gpio_num =
 						CONFIG_HWE_DISPLAY_BUSY,
+					.busy_gpio_lvl =
+						CONFIG_HWE_DISPLAY_BUSY_LEVEL,
 					.width = CONFIG_HWE_DISPLAY_WIDTH,
 					.height = CONFIG_HWE_DISPLAY_HEIGHT,
 				},

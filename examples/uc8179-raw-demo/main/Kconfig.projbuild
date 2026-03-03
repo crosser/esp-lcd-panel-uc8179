@@ -37,17 +37,35 @@ menu "E-Paper Panel Pins (Panel dependent)"
 	config HWE_DISPLAY_RST
 		int "RST (Reset device) pin number for display controller"
 
-	config HWE_DISPLAY_RST_ACTIVE_LEVEL
-		int "Which GPIO level is active 'resetting' (0 or 1)"
-		default 1
+	choice
+		prompt "RST level when device is active"
+		default HWE_DISPLAY_RST_ACTIVE_LEVEL_HIGH
+		config HWE_DISPLAY_RST_ACTIVE_LEVEL_HIGH
+			bool "Device active when RST pin is HIGH"
+		config HWE_DISPLAY_RST_ACTIVE_LEVEL_LOW
+			bool "Device active when RST pin is LOW"
+	endchoice
 
 	config HWE_DISPLAY_BUSY
 		int "BUSY pin number for display controller"
 
+	choice
+		prompt "BUSY pin level when display is busy"
+		default HWE_DISPLAY_BUSY_LEVEL_LOW
+		config HWE_DISPLAY_BUSY_LEVEL_LOW
+			bool "BUSY when pin is LOW"
+		config HWE_DISPLAY_BUSY_LEVEL_HIGH
+			bool "BUSY when pin is HIGH"
+	endchoice
+
+	config HWE_DISPLAY_LED
+		int "LED to turn on while display is updating"
+		default -1
+
 	config HWE_DISPLAY_WIDTH
-		int "Display width (non-rotated)"
+		int "Display width"
 
 	config HWE_DISPLAY_HEIGHT
-		int "Display height (non-rotated)"
+		int "Display height"
 
 endmenu

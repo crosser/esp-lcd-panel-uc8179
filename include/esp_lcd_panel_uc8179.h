@@ -27,7 +27,9 @@ typedef struct epd_io_callbacks {
  *        esp_lcd_panel_dev_config_t->vendor_config
  */
 typedef struct {
+	int led_gpio_num;	/*!< GPIO num with LED (-1 to disable) */
 	int busy_gpio_num;	/*!< GPIO num of the BUSY pin */
+	int busy_gpio_lvl;	/*!< Level that means "BUSY" */
 	int width;		/*!< Display width. */
 	int height;		/*!< Display height. */
 } esp_lcd_uc8179_config_t;
