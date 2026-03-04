@@ -43,6 +43,9 @@ static const char *TAG = "lcd_panel_uc8179";
 #define CMD_TCON 0x60
 #define CMD_TRES 0x61
 #define CMD_FLG  0x71
+#define CMD_PTL  0x90
+#define CMD_PTIN 0x91
+#define CMD_PTOUT 0x92
 
 typedef struct {
 	esp_lcd_panel_t base;
@@ -248,10 +251,38 @@ static esp_err_t panel_uc8179_draw_bitmap(esp_lcd_panel_t * panel,
 			&& x_start < x_end && y_start < y_end,
 		ESP_ERR_INVALID_ARG, TAG,
 		"Coordinates ourside the panel dimensions");
-	ESP_LOGD(TAG, "About to sent data with CMD_DTM1");
-	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM1,
-			uc8179->_zeroes, (x_end - x_start) * (y_end - y_start) / 8),
-		TAG, "CMD_DTM1 err");
+	bool fullscreen = x_start == 0 && y_start == 0
+			&& x_end == uc8179->width && y_end == uc8179->height;
+	// Could not make the thing work. The image is sheared. Disallow.
+	ESP_RETURN_ON_FALSE(fullscreen, ESP_ERR_INVALID_ARG, TAG,
+			"Partial update does not work, unsupported");
+	if (!fullscreen) {
+		ESP_LOGD(TAG, "About to set partial mode");
+		ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_PTIN,
+				NULL, 0),
+			TAG, "CMD_PTIN err");
+		ESP_LOGD(TAG, "Abount to set partial window");
+		ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_PTL,
+				(uint8_t[]) {
+					x_start >> 8,
+					x_start & 0xff,
+					x_end >> 8,
+					x_end & 0xff,
+					y_start >> 8,
+					y_start & 0xff,
+					y_end >> 8,
+					y_end & 0xff,
+					0x01,
+				}, 9),
+			TAG, "CMD_PTL err");
+	}
+	if (fullscreen) {
+		ESP_LOGD(TAG, "About to sent data with CMD_DTM1");
+		ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM1,
+				uc8179->_zeroes,
+				(x_end - x_start) * (y_end - y_start) / 8),
+			TAG, "CMD_DTM1 err");
+	}
 	ESP_LOGD(TAG, "About to sent data with CMD_DTM2");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM2,
 			color_data, (x_end - x_start) * (y_end - y_start) / 8),
@@ -260,6 +291,12 @@ static esp_err_t panel_uc8179_draw_bitmap(esp_lcd_panel_t * panel,
 	// put DRF in the queue of async transactions, use "color" command
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DRF, NULL, 0),
 		TAG, "CMD_DRF err");
+	if (!fullscreen) {
+		ESP_LOGD(TAG, "About to reset to full mode");
+		ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_PTOUT,
+				NULL, 0),
+			TAG, "CMD_PTOUT err");
+	}
 
 	return ESP_OK;
 }

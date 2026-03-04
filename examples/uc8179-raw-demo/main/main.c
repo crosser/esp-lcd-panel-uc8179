@@ -138,6 +138,7 @@ void app_main(void)
 	xSemaphoreTake(epd_ready, portMAX_DELAY);
 	ESP_LOGI(TAG, "Completion");
 
+	ESP_LOGI(TAG, "Delay 5 sec");
 	vTaskDelay(pdMS_TO_TICKS(5000));
 	ESP_LOGI(TAG, "Drawing bitmap...");
 	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0,
@@ -146,6 +147,18 @@ void app_main(void)
 	ESP_LOGI(TAG, "Waiting for completion");
 	xSemaphoreTake(epd_ready, portMAX_DELAY);
 	ESP_LOGI(TAG, "Completion");
+
+#if 0	/* Cannot make partial update work, despite UC8179 supports it */
+	ESP_LOGI(TAG, "Delay 5 sec");
+	vTaskDelay(pdMS_TO_TICKS(5000));
+	ESP_LOGI(TAG, "Drawing small bitmap...");
+	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 300, 200,
+			428, 328,
+			blackcircle));
+	ESP_LOGI(TAG, "Waiting for completion");
+	xSemaphoreTake(epd_ready, portMAX_DELAY);
+	ESP_LOGI(TAG, "Completion");
+#endif
 	ESP_LOGI(TAG, "Put panel to sleep...");
 	esp_lcd_panel_disp_sleep(panel_handle, true);
 	ESP_LOGI(TAG, "Go to deep sleep mode...");
