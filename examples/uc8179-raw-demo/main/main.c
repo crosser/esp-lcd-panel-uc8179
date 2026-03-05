@@ -143,7 +143,7 @@ void app_main(void)
 	ESP_LOGI(TAG, "Drawing bitmap...");
 	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0,
 			CONFIG_HWE_DISPLAY_WIDTH, CONFIG_HWE_DISPLAY_HEIGHT,
-			BITMAP));
+			picture));
 	ESP_LOGI(TAG, "Waiting for completion");
 	xSemaphoreTake(epd_ready, portMAX_DELAY);
 	ESP_LOGI(TAG, "Completion");

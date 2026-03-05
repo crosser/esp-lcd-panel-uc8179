@@ -1,4 +1,4 @@
 idf_component_register(
-	SRCS "main.c" "img_bitmap.c"
+	SRCS "main.c"
 	INCLUDE_DIRS ""
 )
