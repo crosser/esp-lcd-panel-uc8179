@@ -57,6 +57,8 @@ typedef struct {
 	int led_gpio_num;
 	int width;
 	int height;
+	SemaphoreHandle_t color_sent;
+	TaskHandle_t refresh_task;
 	epd_on_color_trans_done_cb_t user_callback;
 	void *user_ctx;
 } uc8179_panel_t;
@@ -64,7 +66,7 @@ typedef struct {
 static esp_err_t uc8179_wait_busy(esp_lcd_panel_t *panel)
 {
 	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t, base);
-#if 0
+#if 0  /* Could extract some info from the panel if MISO pin were connected */
 	esp_lcd_panel_io_handle_t io = uc8179->io;
 	uint8_t flg;
 #endif
@@ -90,6 +92,22 @@ static esp_err_t uc8179_wait_busy(esp_lcd_panel_t *panel)
 	return ESP_OK;
 }
 
+static void refresh_task(void *user_ctx)
+{
+	uc8179_panel_t *uc8179 = user_ctx;
+	esp_lcd_panel_io_handle_t io = uc8179->io;
+
+	ESP_LOGI(TAG, "Refresh task started");
+	while (true) {
+		if (pdTRUE == xSemaphoreTake(uc8179->color_sent,
+					portMAX_DELAY)) {
+			ESP_LOGI(TAG, "Refresh task woke up, send CMD_DRF");
+			ESP_RETURN_VOID_ON_ERROR(esp_lcd_panel_io_tx_param(
+						io, CMD_DRF, NULL, 0),
+				TAG, "CMD_DRF err");
+		}
+	}
+}
 
 static void uc8179_gpio_isr_handler(void *user_ctx)
 {
@@ -111,6 +129,13 @@ static bool uc8179_io_callback(esp_lcd_panel_io_handle_t panel_io,
 		ESP_ERROR_CHECK(gpio_set_level(uc8179->led_gpio_num, 1));
 	}
 	gpio_intr_enable(uc8179->busy_gpio_num);
+
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	xSemaphoreGiveFromISR(uc8179->color_sent, &xHigherPriorityTaskWoken);
+	if (xHigherPriorityTaskWoken == pdTRUE) {
+		portYIELD_FROM_ISR();
+		return true;
+	}
 	return false;
 }
 
@@ -126,6 +151,8 @@ esp_err_t epd_register_event_callbacks(esp_lcd_panel_t *panel,
 static esp_err_t panel_uc8179_del(esp_lcd_panel_t * panel)
 {
 	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
+
+	vTaskDelete(uc8179->refresh_task);
 	if (uc8179->reset_gpio_num >= 0) {
 		gpio_reset_pin(uc8179->reset_gpio_num);
 	}
@@ -191,6 +218,9 @@ static esp_err_t panel_uc8179_init(esp_lcd_panel_t * panel)
 			), TAG, "configure GPIO for BUSY line err");
 		gpio_intr_disable(uc8179->busy_gpio_num);
 	}
+	uc8179->color_sent = xSemaphoreCreateBinary();  /* "Taken" */
+	xTaskCreate(refresh_task, "refresh", 4096*2, uc8179, 0,
+			&uc8179->refresh_task);
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_register_event_callbacks(
 			io,
 			&(esp_lcd_panel_io_callbacks_t) {
@@ -240,6 +270,12 @@ static esp_err_t panel_uc8179_init(esp_lcd_panel_t * panel)
 	ESP_GOTO_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM1,
 			zeroes, uc8179->width * uc8179->height / 8),
 		err, TAG, "CMD_DTM1 err");
+	/* This will cause an extra wakeup of the refresh_task.
+	 * We should probably try to avoid that, and don't get display
+	 * refreshed right away, upon initialisation. But it's not
+	 * trivial, and extra call on init only does not see to cause
+	 * problem. So leaving it as it is.
+	 */
 err:
 	if (zeroes) {
 		free(zeroes);
@@ -290,10 +326,6 @@ static esp_err_t panel_uc8179_draw_bitmap(esp_lcd_panel_t * panel,
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM2,
 			color_data, (x_end - x_start) * (y_end - y_start) / 8),
 		TAG, "CMD_DTM2 err");
-	ESP_LOGD(TAG, "About to sent CMD_DRF");
-	// put DRF in the queue of async transactions, use "color" command
-	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_DRF, NULL, 0),
-		TAG, "CMD_DRF err");
 	if (!fullscreen) {
 		ESP_LOGD(TAG, "About to reset to full mode");
 		ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_PTOUT,
