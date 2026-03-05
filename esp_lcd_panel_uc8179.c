@@ -59,7 +59,6 @@ typedef struct {
 	int height;
 	epd_on_color_trans_done_cb_t user_callback;
 	void *user_ctx;
-	uint8_t *_zeroes;
 } uc8179_panel_t;
 
 static esp_err_t uc8179_wait_busy(esp_lcd_panel_t *panel)
@@ -76,7 +75,7 @@ static esp_err_t uc8179_wait_busy(esp_lcd_panel_t *panel)
 	start = xTaskGetTickCount();
 	while ((lvl = gpio_get_level(uc8179->busy_gpio_num)) ==
 			uc8179->busy_gpio_lvl) {
-		ESP_LOGD(TAG, "Busy level is %d", lvl);
+		// ESP_LOGD(TAG, "Busy level is %d", lvl);
 #if 0
 		ESP_LOGD(TAG, "About to sent CMD_FLG");
 		ESP_RETURN_ON_ERROR(esp_lcd_panel_io_rx_param(io, CMD_FLG,
@@ -136,9 +135,6 @@ static esp_err_t panel_uc8179_del(esp_lcd_panel_t * panel)
 	if (uc8179->led_gpio_num >= 0) {
 		gpio_reset_pin(uc8179->led_gpio_num);
 	}
-	if (uc8179->_zeroes) {
-		free(uc8179->_zeroes);
-	}
 	ESP_LOGD(TAG, "del uc8179 panel @%p", uc8179);
 	free(uc8179);
 	return ESP_OK;
@@ -171,6 +167,7 @@ static esp_err_t panel_uc8179_init(esp_lcd_panel_t * panel)
 {
 	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
 	esp_lcd_panel_io_handle_t io = uc8179->io;
+	esp_err_t ret = ESP_OK;
 
 	if (uc8179->led_gpio_num >= 0) {
 		ESP_RETURN_ON_ERROR(gpio_set_direction(uc8179->led_gpio_num,
@@ -234,7 +231,20 @@ static esp_err_t panel_uc8179_init(esp_lcd_panel_t * panel)
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_TCON,
 			(uint8_t[]) { 0x22 }, 1),
 		TAG, "CMD_TCON err");
-	return ESP_OK;
+	uint8_t *zeroes = heap_caps_malloc(
+		uc8179->width * uc8179->height / 8, MALLOC_CAP_DMA);
+	ESP_GOTO_ON_FALSE(zeroes, ESP_ERR_NO_MEM, err, TAG,
+			"uc8179 allocating zero buffer err");
+	memset(zeroes, 0, uc8179->width * uc8179->height / 8);
+	ESP_LOGD(TAG, "About to sent zeroes with CMD_DTM1");
+	ESP_GOTO_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM1,
+			zeroes, uc8179->width * uc8179->height / 8),
+		err, TAG, "CMD_DTM1 err");
+err:
+	if (zeroes) {
+		free(zeroes);
+	}
+	return ret;
 }
 
 static esp_err_t panel_uc8179_draw_bitmap(esp_lcd_panel_t * panel,
@@ -276,20 +286,13 @@ static esp_err_t panel_uc8179_draw_bitmap(esp_lcd_panel_t * panel,
 				}, 9),
 			TAG, "CMD_PTL err");
 	}
-	if (fullscreen) {
-		ESP_LOGD(TAG, "About to sent data with CMD_DTM1");
-		ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM1,
-				uc8179->_zeroes,
-				(x_end - x_start) * (y_end - y_start) / 8),
-			TAG, "CMD_DTM1 err");
-	}
 	ESP_LOGD(TAG, "About to sent data with CMD_DTM2");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM2,
 			color_data, (x_end - x_start) * (y_end - y_start) / 8),
 		TAG, "CMD_DTM2 err");
 	ESP_LOGD(TAG, "About to sent CMD_DRF");
 	// put DRF in the queue of async transactions, use "color" command
-	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DRF, NULL, 0),
+	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_DRF, NULL, 0),
 		TAG, "CMD_DRF err");
 	if (!fullscreen) {
 		ESP_LOGD(TAG, "About to reset to full mode");
@@ -370,11 +373,6 @@ esp_err_t esp_lcd_new_panel_uc8179(const esp_lcd_panel_io_handle_t io,
 	uc8179->height = uc8179_config->height;
 	uc8179->io = io;
 	uc8179->base = uc8179_base;
-	uc8179->_zeroes = heap_caps_malloc(
-		uc8179->width * uc8179->height / 8, MALLOC_CAP_DMA);
-	ESP_GOTO_ON_FALSE(uc8179->_zeroes, ESP_ERR_NO_MEM, err, TAG,
-			"uc8179 allocating zero buffer err");
-	memset(uc8179->_zeroes, 0, uc8179->width * uc8179->height / 8);
 
 	*ret_panel = &(uc8179->base);
 	ESP_LOGD(TAG, "new uc8179 panel @%p", uc8179);

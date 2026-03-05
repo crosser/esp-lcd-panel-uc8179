@@ -159,6 +159,8 @@ void app_main(void)
 	xSemaphoreTake(epd_ready, portMAX_DELAY);
 	ESP_LOGI(TAG, "Completion");
 #endif
+	ESP_LOGI(TAG, "Delay 5 sec");
+	vTaskDelay(pdMS_TO_TICKS(5000));
 	ESP_LOGI(TAG, "Put panel to sleep...");
 	esp_lcd_panel_disp_sleep(panel_handle, true);
 	ESP_LOGI(TAG, "Go to deep sleep mode...");
