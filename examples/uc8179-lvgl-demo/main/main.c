@@ -132,14 +132,12 @@ void app_main(void)
 		&panel_handle));
 	ESP_LOGI(TAG, "Resetting e-Paper display...");
 	ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
-	vTaskDelay(100 / portTICK_PERIOD_MS);
+	vTaskDelay(pdMS_TO_TICKS(100));
 	ESP_LOGI(TAG, "Initializing e-Paper display...");
 	ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
-	vTaskDelay(100 / portTICK_PERIOD_MS);
+	vTaskDelay(pdMS_TO_TICKS(100));
 	// ESP_ERROR_CHECK(epaper_panel_set_custom_lut(panel_handle, ...);
-	// vTaskDelay(100 / portTICK_PERIOD_MS);
-	ESP_LOGI(TAG, "Delay 5 sec...");
-	vTaskDelay(pdMS_TO_TICKS(5000));
+	// vTaskDelay(pdMS_TO_TICKS(100));
 
 	// SemaphoreHandle_t epd_ready = xSemaphoreCreateBinary();
 	// Semaphore is created initially "taken"

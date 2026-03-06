@@ -58,6 +58,7 @@ typedef struct {
 	int width;
 	int height;
 	SemaphoreHandle_t color_sent;
+	SemaphoreHandle_t init_color_sent;
 	TaskHandle_t refresh_task;
 	epd_on_color_trans_done_cb_t user_callback;
 	void *user_ctx;
@@ -101,10 +102,16 @@ static void refresh_task(void *user_ctx)
 	while (true) {
 		if (pdTRUE == xSemaphoreTake(uc8179->color_sent,
 					portMAX_DELAY)) {
-			ESP_LOGI(TAG, "Refresh task woke up, send CMD_DRF");
-			ESP_RETURN_VOID_ON_ERROR(esp_lcd_panel_io_tx_param(
-						io, CMD_DRF, NULL, 0),
-				TAG, "CMD_DRF err");
+			if (uc8179->init_color_sent) {
+				ESP_LOGI(TAG, "No refresh in init");
+				xSemaphoreGive(uc8179->init_color_sent);
+			} else {
+				ESP_LOGI(TAG, "Refresh after transfer");
+				ESP_RETURN_VOID_ON_ERROR(
+						esp_lcd_panel_io_tx_param(
+							io, CMD_DRF, NULL, 0),
+					TAG, "CMD_DRF err");
+			}
 		}
 	}
 }
@@ -153,6 +160,7 @@ static esp_err_t panel_uc8179_del(esp_lcd_panel_t * panel)
 	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
 
 	vTaskDelete(uc8179->refresh_task);
+	vSemaphoreDelete(uc8179->color_sent);
 	if (uc8179->reset_gpio_num >= 0) {
 		gpio_reset_pin(uc8179->reset_gpio_num);
 	}
@@ -266,16 +274,17 @@ static esp_err_t panel_uc8179_init(esp_lcd_panel_t * panel)
 	ESP_GOTO_ON_FALSE(zeroes, ESP_ERR_NO_MEM, err, TAG,
 			"uc8179 allocating zero buffer err");
 	memset(zeroes, 0, uc8179->width * uc8179->height / 8);
+	/* io_tx_color would cause an extra wakeup of the refresh_task. */
+	uc8179->init_color_sent = xSemaphoreCreateBinary();
 	ESP_LOGD(TAG, "About to sent zeroes with CMD_DTM1");
 	ESP_GOTO_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM1,
 			zeroes, uc8179->width * uc8179->height / 8),
 		err, TAG, "CMD_DTM1 err");
-	/* This will cause an extra wakeup of the refresh_task.
-	 * We should probably try to avoid that, and don't get display
-	 * refreshed right away, upon initialisation. But it's not
-	 * trivial, and extra call on init only does not see to cause
-	 * problem. So leaving it as it is.
-	 */
+	ESP_LOGD(TAG, "Waiting for completion...");
+	xSemaphoreTake(uc8179->init_color_sent, portMAX_DELAY);
+	ESP_LOGD(TAG, "Completed");
+	vSemaphoreDelete(uc8179->init_color_sent);
+	uc8179->init_color_sent = NULL;
 err:
 	if (zeroes) {
 		free(zeroes);
