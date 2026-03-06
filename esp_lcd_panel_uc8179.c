@@ -80,7 +80,7 @@ static esp_err_t uc8179_wait_busy(esp_lcd_panel_t *panel)
 			uc8179->busy_gpio_lvl) {
 		// ESP_LOGD(TAG, "Busy level is %d", lvl);
 #if 0
-		ESP_LOGD(TAG, "About to sent CMD_FLG");
+		ESP_LOGD(TAG, "About to send CMD_FLG");
 		ESP_RETURN_ON_ERROR(esp_lcd_panel_io_rx_param(io, CMD_FLG,
 				&flg, 1),
 		TAG, "CMD_PSR err");
@@ -236,20 +236,20 @@ static esp_err_t panel_uc8179_init(esp_lcd_panel_t * panel)
 			},
 			uc8179),
 		TAG, "could not register spi io callbacks");
-	ESP_LOGD(TAG, "About to sent CMD_PWR");
+	ESP_LOGD(TAG, "About to send CMD_PWR");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_PWR,
 			(uint8_t[]) { 0x07, 0x07, 0x3f, 0x3f }, 4),
 		TAG, "CMD_PWR err");
-	ESP_LOGD(TAG, "About to sent CMD_PON");
+	ESP_LOGD(TAG, "About to send CMD_PON");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_PON, NULL, 0),
 		TAG, "CMD_PON err");
 	vTaskDelay(pdMS_TO_TICKS(100));
 	uc8179_wait_busy(panel);
-	ESP_LOGD(TAG, "About to sent CMD_PSR");
+	ESP_LOGD(TAG, "About to send CMD_PSR");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_PSR,
 			(uint8_t[]) { 0x1f }, 1),
 		TAG, "CMD_PSR err");
-	ESP_LOGD(TAG, "About to sent CMD_TRES");
+	ESP_LOGD(TAG, "About to send CMD_TRES");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_TRES,
 			(uint8_t[]) {
 				uc8179->width >> 8,
@@ -257,15 +257,15 @@ static esp_err_t panel_uc8179_init(esp_lcd_panel_t * panel)
 				uc8179->height >> 8,
 				uc8179->height & 0xff }, 4),
 		TAG, "CMD_TRES err");
-	ESP_LOGD(TAG, "About to sent CMD_DSPI");
+	ESP_LOGD(TAG, "About to send CMD_DSPI");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_DSPI,
 			(uint8_t[]) { 0 }, 1),
 		TAG, "CMD_DSPI err");
-	ESP_LOGD(TAG, "About to sent CMD_CDI");
+	ESP_LOGD(TAG, "About to send CMD_CDI");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_CDI,
 			(uint8_t[]) { 0x10, 0x07 }, 2),
 		TAG, "CMD_CDI err");
-	ESP_LOGD(TAG, "About to sent CMD_TCON");
+	ESP_LOGD(TAG, "About to send CMD_TCON");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_TCON,
 			(uint8_t[]) { 0x22 }, 1),
 		TAG, "CMD_TCON err");
@@ -276,7 +276,7 @@ static esp_err_t panel_uc8179_init(esp_lcd_panel_t * panel)
 	memset(zeroes, 0, uc8179->width * uc8179->height / 8);
 	/* io_tx_color would cause an extra wakeup of the refresh_task. */
 	uc8179->init_color_sent = xSemaphoreCreateBinary();
-	ESP_LOGD(TAG, "About to sent zeroes with CMD_DTM1");
+	ESP_LOGD(TAG, "About to send zeroes with CMD_DTM1");
 	ESP_GOTO_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM1,
 			zeroes, uc8179->width * uc8179->height / 8),
 		err, TAG, "CMD_DTM1 err");
@@ -331,7 +331,7 @@ static esp_err_t panel_uc8179_draw_bitmap(esp_lcd_panel_t * panel,
 				}, 9),
 			TAG, "CMD_PTL err");
 	}
-	ESP_LOGD(TAG, "About to sent data with CMD_DTM2");
+	ESP_LOGD(TAG, "About to send data with CMD_DTM2");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, CMD_DTM2,
 			color_data, (x_end - x_start) * (y_end - y_start) / 8),
 		TAG, "CMD_DTM2 err");
@@ -349,7 +349,7 @@ static esp_err_t panel_uc8179_disp_on_off(esp_lcd_panel_t * panel, bool on)
 {
 	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
 	esp_lcd_panel_io_handle_t io = uc8179->io;
-	ESP_LOGD(TAG, "About to sent %s", on ? "CMD_PON" : "CMD_POF");
+	ESP_LOGD(TAG, "About to send %s", on ? "CMD_PON" : "CMD_POF");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(
 			io, on ? CMD_PON : CMD_POF, NULL, 0),
 		TAG, "CMD_PON err");
@@ -365,12 +365,12 @@ static esp_err_t panel_uc8179_sleep(esp_lcd_panel_t * panel, bool sleep)
 		ESP_ERR_INVALID_ARG, TAG, "Wakeup is not supported");
 	uc8179_panel_t *uc8179 = __containerof(panel, uc8179_panel_t,  base);
 	esp_lcd_panel_io_handle_t io = uc8179->io;
-	ESP_LOGD(TAG, "About to sent CMD_POF");
+	ESP_LOGD(TAG, "About to send CMD_POF");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param( io, CMD_POF, NULL, 0),
 		TAG, "CMD_PON err");
 	vTaskDelay(pdMS_TO_TICKS(100));
 	uc8179_wait_busy(panel);
-	ESP_LOGD(TAG, "About to sent CMD_DSLP");
+	ESP_LOGD(TAG, "About to send CMD_DSLP");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param( io, CMD_DSLP,
 			(uint8_t[]) { 0xa5 }, 1),
 		TAG, "CMD_DSLP err");

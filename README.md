@@ -1,21 +1,15 @@
-ESP32 e-paper driver board from Waveshare uses this pins:
+# esp\_lcd\_panel driver for e-paper panels based on UC8179
 
-```
-/**
- * GPIO config
-**/
-#define EPD_SCK_PIN  13
-#define EPD_MOSI_PIN 14
-#define EPD_CS_PIN   15
-#define EPD_RST_PIN  26
-#define EPD_DC_PIN   27
-#define EPD_BUSY_PIN 25
-```
+Developed using
 
-We connect to Waveshare b/w 5in83 panel V2 which is presumably the same
-thing as Good Display model GDEY0583T81 that uses IC UC8179.
-Resolution is 648x480.
-See https://www.good-display.com/product/440.html
+- Waveshare 5in83 panel V2
+
+Probably will work with
+
+- Good Display model GDEY0583T81
+- Waveshare 7in5 panel V2
+
+Possibly with other e-paper panels that use UC8179 IC
 
 Inspiration for the driver:
 
