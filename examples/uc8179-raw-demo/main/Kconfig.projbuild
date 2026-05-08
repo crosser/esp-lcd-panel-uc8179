@@ -62,6 +62,10 @@ menu "E-Paper Panel Pins (Panel dependent)"
 		int "LED to turn on while display is updating"
 		default -1
 
+	config HWE_DISPLAY_ENABLE
+		int "ENABLE pin number for display controller"
+		default -1
+
 	config HWE_DISPLAY_WIDTH
 		int "Display width"
 

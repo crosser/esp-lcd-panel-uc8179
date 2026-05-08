@@ -102,6 +102,8 @@ void app_main(void)
 			.vendor_config =
 				&(esp_lcd_uc8179_config_t) {
 					.led_gpio_num =CONFIG_HWE_DISPLAY_LED,
+					.enable_gpio_num =
+						CONFIG_HWE_DISPLAY_ENABLE,
 					.busy_gpio_num =
 						CONFIG_HWE_DISPLAY_BUSY,
 					.busy_gpio_lvl =
