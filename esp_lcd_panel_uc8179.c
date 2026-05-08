@@ -54,6 +54,7 @@ typedef struct {
 	bool reset_active_level;
 	int busy_gpio_num;
 	bool busy_gpio_lvl;
+	int enable_gpio_num;
 	int led_gpio_num;
 	int width;
 	int height;
@@ -170,6 +171,9 @@ static esp_err_t panel_uc8179_del(esp_lcd_panel_t * panel)
 	if (uc8179->led_gpio_num >= 0) {
 		gpio_reset_pin(uc8179->led_gpio_num);
 	}
+	if (uc8179->enable_gpio_num >= 0) {
+		gpio_reset_pin(uc8179->enable_gpio_num);
+	}
 	ESP_LOGD(TAG, "del uc8179 panel @%p", uc8179);
 	free(uc8179);
 	return ESP_OK;
@@ -236,6 +240,14 @@ static esp_err_t panel_uc8179_init(esp_lcd_panel_t * panel)
 			},
 			uc8179),
 		TAG, "could not register spi io callbacks");
+	if (uc8179->enable_gpio_num >= 0) {
+		ESP_RETURN_ON_ERROR(gpio_set_direction(uc8179->enable_gpio_num,
+				GPIO_MODE_OUTPUT),
+			TAG, "enable pin set direction error");
+		ESP_RETURN_ON_ERROR(gpio_set_level(uc8179->enable_gpio_num, 1),
+			TAG, "enable pin set level error");
+		vTaskDelay(pdMS_TO_TICKS(100));
+	}
 	ESP_LOGD(TAG, "About to send CMD_PWR");
 	ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, CMD_PWR,
 			(uint8_t[]) { 0x07, 0x07, 0x3f, 0x3f }, 4),
@@ -406,6 +418,7 @@ esp_err_t esp_lcd_new_panel_uc8179(const esp_lcd_panel_io_handle_t io,
 	ESP_GOTO_ON_FALSE(uc8179,
 		ESP_ERR_NO_MEM, err, TAG, "no mem for uc8179 panel");
 	uc8179->led_gpio_num = uc8179_config->led_gpio_num;
+	uc8179->enable_gpio_num = uc8179_config->enable_gpio_num;
 	uc8179->reset_gpio_num = panel_dev_config->reset_gpio_num;
 	uc8179->reset_active_level = panel_dev_config->flags.reset_active_high;
 	uc8179->busy_gpio_num = uc8179_config->busy_gpio_num;
