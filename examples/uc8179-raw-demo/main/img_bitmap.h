@@ -3,8 +3,10 @@
 
 /*
   prawny-sketch-648x480.h (gray).
-  convert prawny-sketch-648x480.png -negate \
-    -define h:format=gray -depth 1 prawny-sketch-648x480.h
+  convert prawny-sketch-5146141_1280.png -resize 648x480^ 
+    -gravity Center -extent 648x480 \
+    -monochrome -negate \
+    -define h:format=gray -depth 1 img.h
 
   https://pixabay.com/illustrations/sketch-vintage-drawing-black-ink-5146141/
   Sketch, Vintage, Drawing royalty-free stock illustration.
