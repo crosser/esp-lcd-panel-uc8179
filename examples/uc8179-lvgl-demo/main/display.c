@@ -34,7 +34,7 @@ static void draw_cb(lv_event_t *e)
 	lv_obj_t *obj = lv_event_get_target(e);
 	lv_draw_task_t *draw_task = lv_event_get_draw_task(e);
 	lv_draw_dsc_base_t *base_dsc = lv_draw_task_get_draw_dsc(draw_task);
-	ESP_LOGI(TAG, "Draw task called, part %d, expect not %d",
+	ESP_LOGI(TAG, "Draw task called, part %d, ignore if not %d",
 			base_dsc->part, LV_PART_MAIN);
 	if (base_dsc->part != LV_PART_MAIN) return;
 
