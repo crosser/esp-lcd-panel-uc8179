@@ -47,11 +47,23 @@
 #define LV_BUF_SIZE (BITMAP_SIZE + 8)
 #define LV_TICK_PERIOD_MS 1
 
+typedef struct {
+	lv_display_t *disp;
+	SemaphoreHandle_t ready_sem;
+} trans_done_ctx_t;
+
 static bool color_trans_done(void *user_ctx)
 {
-	lv_display_t *disp = (lv_display_t*)user_ctx;
+	trans_done_ctx_t *trans_done_ctx = (trans_done_ctx_t*)user_ctx;
 	// ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_2, 1));
-	lv_display_flush_ready(disp);
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	xSemaphoreGiveFromISR(trans_done_ctx->ready_sem,
+			&xHigherPriorityTaskWoken);
+	if (xHigherPriorityTaskWoken == pdTRUE) {
+		portYIELD_FROM_ISR();
+		return true;
+	}
+	lv_display_flush_ready(trans_done_ctx->disp);
 	return false;
 }
 
@@ -120,7 +132,7 @@ void app_main(void)
 				CONFIG_HWE_DISPLAY_RST_ACTIVE_LEVEL,
 			.vendor_config =
 				&(esp_lcd_uc8179_config_t) {
-					.led_gpio_num =CONFIG_HWE_DISPLAY_LED,
+					.led_gpio_num = CONFIG_HWE_DISPLAY_LED,
 					.enable_gpio_num =
 						CONFIG_HWE_DISPLAY_ENABLE,
 					.busy_gpio_num =
@@ -141,8 +153,7 @@ void app_main(void)
 	// ESP_ERROR_CHECK(epaper_panel_set_custom_lut(panel_handle, ...);
 	// vTaskDelay(pdMS_TO_TICKS(100));
 
-	// SemaphoreHandle_t epd_ready = xSemaphoreCreateBinary();
-	// Semaphore is created initially "taken"
+	SemaphoreHandle_t epd_ready = xSemaphoreCreateBinary();
 	ESP_LOGI(TAG, "Preparing lvgl display...");
 	lv_init();
 	lv_display_t *disp = lv_display_create(CONFIG_HWE_DISPLAY_WIDTH,
@@ -158,12 +169,15 @@ void app_main(void)
 	}
 	lv_display_set_buffers(disp, buf[0], buf[1], LV_BUF_SIZE,
 			LV_DISPLAY_RENDER_MODE_FULL);
+	trans_done_ctx_t *trans_done_ctx = malloc(sizeof(trans_done_ctx_t));
+	*trans_done_ctx = (trans_done_ctx_t) {.disp = disp,
+						.ready_sem = epd_ready};
 	ESP_ERROR_CHECK(epd_register_event_callbacks(
 		panel_handle,
 		&(epd_io_callbacks_t) {
 			.on_color_trans_done = color_trans_done,
 		},
-		disp));
+		trans_done_ctx));
 	esp_timer_handle_t lv_tick_timer;
 	ESP_ERROR_CHECK(esp_timer_create(
 		&(esp_timer_create_args_t) {
@@ -178,9 +192,14 @@ void app_main(void)
 	ESP_LOGI(TAG, "Going into update loop...");
 	while (true) {
 		vTaskDelay(pdMS_TO_TICKS(10));
+		ESP_LOGI(TAG, "Calling lv_task_handler");
 		lv_task_handler();
+		ESP_LOGI(TAG, "Waiting for completion");
+		xSemaphoreTake(epd_ready, portMAX_DELAY);
+		ESP_LOGI(TAG, "Completion");
 	}
 	ESP_LOGI(TAG, "Loop finished");
 	stop_display(disp);
+	free(trans_done_ctx);
 	esp_deep_sleep_start();
 }
