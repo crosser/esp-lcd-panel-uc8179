@@ -58,6 +58,8 @@ static bool give_semaphore_in_isr(void *user_ctx)
 
 void app_main(void)
 {
+	TickType_t start, end;
+
 	ESP_LOGI(TAG, "Initializing SPI bus");
 	ESP_ERROR_CHECK(spi_bus_initialize(SPIx_HOST,
 		&(spi_bus_config_t) {
@@ -134,11 +136,13 @@ void app_main(void)
 	ESP_LOGI(TAG, "Clear screen");
 	uint8_t *empty_bitmap = heap_caps_malloc(BITMAP_SIZE, MALLOC_CAP_DMA);
 	memset(empty_bitmap, 0, BITMAP_SIZE);
+	start = xTaskGetTickCount();
 	esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, CONFIG_HWE_DISPLAY_WIDTH,
 			CONFIG_HWE_DISPLAY_HEIGHT, empty_bitmap);
 	ESP_LOGI(TAG, "Waiting for completion");
 	xSemaphoreTake(epd_ready, portMAX_DELAY);
-	ESP_LOGI(TAG, "Completion");
+	end = xTaskGetTickCount();
+	ESP_LOGI(TAG, "Completion after %d ticks", (int)(end - start));
 	free(empty_bitmap);
 	empty_bitmap = NULL;
 
@@ -149,12 +153,14 @@ void app_main(void)
 	make_bitmap(CONFIG_HWE_DISPLAY_WIDTH, CONFIG_HWE_DISPLAY_HEIGHT,
 			picture);
 	ESP_LOGI(TAG, "Drawing bitmap...");
+	start = xTaskGetTickCount();
 	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0,
 			CONFIG_HWE_DISPLAY_WIDTH, CONFIG_HWE_DISPLAY_HEIGHT,
 			picture));
 	ESP_LOGI(TAG, "Waiting for completion");
 	xSemaphoreTake(epd_ready, portMAX_DELAY);
-	ESP_LOGI(TAG, "Completion");
+	end = xTaskGetTickCount();
+	ESP_LOGI(TAG, "Completion after %d ticks", (int)(end - start));
 	free(picture);
 	picture = NULL;
 
