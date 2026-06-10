@@ -56,6 +56,7 @@ typedef struct {
 	bool busy_gpio_lvl;
 	int enable_gpio_num;
 	int led_gpio_num;
+	int led_on_lvl;
 	int width;
 	int height;
 	SemaphoreHandle_t color_sent;
@@ -121,7 +122,8 @@ static void uc8179_gpio_isr_handler(void *user_ctx)
 {
 	uc8179_panel_t *uc8179 = user_ctx;
 	if (uc8179->led_gpio_num >= 0) {
-		ESP_ERROR_CHECK(gpio_set_level(uc8179->led_gpio_num, 0));
+		ESP_ERROR_CHECK(gpio_set_level(uc8179->led_gpio_num,
+					!uc8179->led_on_lvl));
 	}
 	gpio_intr_disable(uc8179->busy_gpio_num);
 	if (uc8179->user_callback) {
@@ -134,7 +136,8 @@ static bool uc8179_io_callback(esp_lcd_panel_io_handle_t panel_io,
 {
 	uc8179_panel_t *uc8179 = user_ctx;
 	if (uc8179->led_gpio_num >= 0) {
-		ESP_ERROR_CHECK(gpio_set_level(uc8179->led_gpio_num, 1));
+		ESP_ERROR_CHECK(gpio_set_level(uc8179->led_gpio_num,
+					uc8179->led_on_lvl));
 	}
 	gpio_intr_enable(uc8179->busy_gpio_num);
 
@@ -212,7 +215,8 @@ static esp_err_t panel_uc8179_init(esp_lcd_panel_t * panel)
 		ESP_RETURN_ON_ERROR(gpio_set_direction(uc8179->led_gpio_num,
 				GPIO_MODE_OUTPUT),
 			TAG, "led pin set direction error");
-		ESP_RETURN_ON_ERROR(gpio_set_level(uc8179->led_gpio_num, 0),
+		ESP_RETURN_ON_ERROR(gpio_set_level(uc8179->led_gpio_num,
+					!uc8179->led_on_lvl),
 			TAG, "led pin set level error");
 	}
 	if (uc8179->busy_gpio_num >= 0) {
@@ -418,6 +422,7 @@ esp_err_t esp_lcd_new_panel_uc8179(const esp_lcd_panel_io_handle_t io,
 	ESP_GOTO_ON_FALSE(uc8179,
 		ESP_ERR_NO_MEM, err, TAG, "no mem for uc8179 panel");
 	uc8179->led_gpio_num = uc8179_config->led_gpio_num;
+	uc8179->led_on_lvl = uc8179_config->led_on_lvl;
 	uc8179->enable_gpio_num = uc8179_config->enable_gpio_num;
 	uc8179->reset_gpio_num = panel_dev_config->reset_gpio_num;
 	uc8179->reset_active_level = panel_dev_config->flags.reset_active_high;

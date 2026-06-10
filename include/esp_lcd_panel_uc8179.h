@@ -28,6 +28,7 @@ typedef struct epd_io_callbacks {
  */
 typedef struct {
 	int led_gpio_num;	/*!< GPIO num with LED (-1 to disable) */
+	int led_on_lvl;		/*!< Level that makes LED shine */
 	int enable_gpio_num;	/*!< GPIO num for power (-1 to disable) */
 	int busy_gpio_num;	/*!< GPIO num of the BUSY pin */
 	int busy_gpio_lvl;	/*!< Level that means "BUSY" */
