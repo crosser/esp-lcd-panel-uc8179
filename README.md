@@ -3,6 +3,7 @@
 Developed using
 
 - Waveshare 5in83 panel V2
+- Seed Studio TRMNL-7.5-DIY-Kit
 
 Probably will work with
 
