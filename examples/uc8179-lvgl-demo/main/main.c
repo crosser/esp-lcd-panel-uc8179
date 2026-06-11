@@ -47,11 +47,21 @@
 #define LV_BUF_SIZE (BITMAP_SIZE + 8)
 #define LV_TICK_PERIOD_MS 1
 
+static SemaphoreHandle_t epd_ready = NULL;
+
 static bool color_trans_done(void *user_ctx)
 {
 	lv_display_t *disp = (lv_display_t*)user_ctx;
 	// ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_2, 1));
 	lv_display_flush_ready(disp);
+	if (epd_ready) {
+		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+		xSemaphoreGiveFromISR(epd_ready, &xHigherPriorityTaskWoken);
+		if (xHigherPriorityTaskWoken == pdTRUE) {
+			portYIELD_FROM_ISR();
+			return true;
+		}
+	}
 	return false;
 }
 
@@ -141,8 +151,6 @@ void app_main(void)
 	// ESP_ERROR_CHECK(epaper_panel_set_custom_lut(panel_handle, ...);
 	// vTaskDelay(pdMS_TO_TICKS(100));
 
-	// SemaphoreHandle_t epd_ready = xSemaphoreCreateBinary();
-	// Semaphore is created initially "taken"
 	ESP_LOGI(TAG, "Preparing lvgl display...");
 	lv_init();
 	lv_display_t *disp = lv_display_create(CONFIG_HWE_DISPLAY_WIDTH,
@@ -176,11 +184,23 @@ void app_main(void)
 	ESP_LOGI(TAG, "Initializing LVGL Display...");
 	init_display(disp);
 	ESP_LOGI(TAG, "Going into update loop...");
+#if 0
 	while (true) {
 		vTaskDelay(pdMS_TO_TICKS(10));
 		lv_task_handler();
 	}
 	ESP_LOGI(TAG, "Loop finished");
+#else
+	epd_ready = xSemaphoreCreateBinary();
+	lv_task_handler();
+	ESP_LOGI(TAG, "Waiting for completion");
+	xSemaphoreTake(epd_ready, portMAX_DELAY);
+	ESP_LOGI(TAG, "Completed, wait 5 more seconds");
+	vTaskDelay(pdMS_TO_TICKS(5000));
+#endif
+	ESP_LOGI(TAG, "stopping display");
 	stop_display(disp);
+	lv_deinit();
+	ESP_LOGI(TAG, "Going into deep sleep...");
 	esp_deep_sleep_start();
 }
