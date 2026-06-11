@@ -100,15 +100,15 @@ static void refresh_task(void *user_ctx)
 	uc8179_panel_t *uc8179 = user_ctx;
 	esp_lcd_panel_io_handle_t io = uc8179->io;
 
-	ESP_LOGI(TAG, "Refresh task started");
+	ESP_LOGD(TAG, "Refresh task started");
 	while (true) {
 		if (pdTRUE == xSemaphoreTake(uc8179->color_sent,
 					portMAX_DELAY)) {
 			if (uc8179->init_color_sent) {
-				ESP_LOGI(TAG, "No refresh in init");
+				ESP_LOGD(TAG, "No refresh in init");
 				xSemaphoreGive(uc8179->init_color_sent);
 			} else {
-				ESP_LOGI(TAG, "Refresh after transfer");
+				ESP_LOGD(TAG, "Refresh after transfer");
 				ESP_RETURN_VOID_ON_ERROR(
 						esp_lcd_panel_io_tx_param(
 							io, CMD_DRF, NULL, 0),
