@@ -163,20 +163,34 @@ void app_main(void)
 	xSemaphoreTake(epd_ready, portMAX_DELAY);
 	end = xTaskGetTickCount();
 	ESP_LOGI(TAG, "Completion after %d ticks", (int)(end - start));
+
+	ESP_LOGI(TAG, "Delay 5 sec");
+	vTaskDelay(pdMS_TO_TICKS(5000));
+	ESP_LOGI(TAG, "Drawing small bitmap (%d bytes, %d bits)...",
+			sizeof(blackcircle), sizeof(blackcircle) * 8);
+	start = xTaskGetTickCount();
+	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle,
+			0, 0, 128, 128, blackcircle));
+	ESP_LOGI(TAG, "Waiting for completion");
+	xSemaphoreTake(epd_ready, portMAX_DELAY);
+	end = xTaskGetTickCount();
+	ESP_LOGI(TAG, "Completion after %d ticks", (int)(end - start));
+
+	ESP_LOGI(TAG, "Delay 5 sec");
+	vTaskDelay(pdMS_TO_TICKS(5000));
+	ESP_LOGI(TAG, "Redrawing full bitmap...");
+	start = xTaskGetTickCount();
+	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0,
+			CONFIG_HWE_DISPLAY_WIDTH, CONFIG_HWE_DISPLAY_HEIGHT,
+			picture));
+	ESP_LOGI(TAG, "Waiting for completion");
+	xSemaphoreTake(epd_ready, portMAX_DELAY);
+	end = xTaskGetTickCount();
+	ESP_LOGI(TAG, "Completion after %d ticks", (int)(end - start));
+
 	free(picture);
 	picture = NULL;
 
-#if 0	/* Cannot make partial update work, despite UC8179 supports it */
-	ESP_LOGI(TAG, "Delay 5 sec");
-	vTaskDelay(pdMS_TO_TICKS(5000));
-	ESP_LOGI(TAG, "Drawing small bitmap...");
-	ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 300, 200,
-			428, 328,
-			blackcircle));
-	ESP_LOGI(TAG, "Waiting for completion");
-	xSemaphoreTake(epd_ready, portMAX_DELAY);
-	ESP_LOGI(TAG, "Completion");
-#endif
 	ESP_LOGI(TAG, "Delay 5 sec");
 	vTaskDelay(pdMS_TO_TICKS(5000));
 	ESP_LOGI(TAG, "Put panel to sleep...");
